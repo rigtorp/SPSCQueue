@@ -6,6 +6,7 @@ set(CMAKE_CXX_FLAGS "-std=c++11 -Wall")
 
 link_libraries(pthread rt)
 
+add_executable(SPSCQueueExample SPSCQueueExample.cpp)
 add_executable(SPSCQueueTest SPSCQueueTest.cpp)
 
 enable_testing()
