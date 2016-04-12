@@ -19,6 +19,39 @@ q.push(1);
 t.join();
 ```
 
+## Usage
+
+Create a `SPSCqueue` holding items of type `T` with capacity `capacity`:
+
+```cpp
+SPSCQueue<T>(size_t capacity);
+```
+
+Enqueue an item using inplace construction, blocks if queue is full:
+
+```cpp
+void emplace(Args &&... args);
+```
+
+Try to enqueue an item using inplace construction, returns `false` if
+queue is full:
+
+```cpp
+bool try_emplace(Args &&... args);
+```
+
+Return pointer to front of queue, returns `nullptr` if queue is empty:
+
+```cpp
+T *front();
+```
+
+Dequeue first elment of queue, invalid to call of queue is empty:
+
+```cpp
+Pop();
+```
+
 ## About
 
 This project was created by [Erik Rigtorp](http://rigtorp.se)
