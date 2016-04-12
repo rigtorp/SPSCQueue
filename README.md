@@ -49,7 +49,7 @@ T *front();
 Dequeue first elment of queue, invalid to call of queue is empty:
 
 ```cpp
-Pop();
+pop();
 ```
 
 ## About
