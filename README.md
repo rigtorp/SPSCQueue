@@ -21,36 +21,55 @@ t.join();
 
 ## Usage
 
-Create a `SPSCqueue` holding items of type `T` with capacity `capacity`:
+Only a single writer thread can perform enqueue operations and only a
+single reader thread can perform dequeue operations. Any other usage
+is invalid.
 
 ```cpp
 SPSCQueue<T>(size_t capacity);
 ```
 
-Enqueue an item using inplace construction, blocks if queue is full:
+Create a `SPSCqueue` holding items of type `T` with capacity `capacity`.
 
 ```cpp
 void emplace(Args &&... args);
 ```
 
-Try to enqueue an item using inplace construction, returns `false` if
-queue is full:
+Enqueue an item using inplace construction. Blocks if queue is
+full.
 
 ```cpp
 bool try_emplace(Args &&... args);
 ```
 
-Return pointer to front of queue, returns `nullptr` if queue is empty:
+Try to enqueue an item using inplace construction. Returns `true` on
+success and `false` if queue is full.
 
 ```cpp
 T *front();
 ```
 
-Dequeue first elment of queue, invalid to call of queue is empty:
+Return pointer to front of queue. Returns `nullptr` if queue is
+empty.
 
 ```cpp
 pop();
 ```
+
+Dequeue first elment of queue. Invalid to call if queue is empty.
+
+## Implementation
+
+The underlying implementation is a
+[ring buffer](https://en.wikipedia.org/wiki/Circular_buffer). 
+
+Care has been taken to make sure to avoid any issues with
+[false sharing](https://en.wikipedia.org/wiki/False_sharing). The head
+and tail pointers are aligned and padded to the false sharing range
+(currently hard coded to 128 bytes). The slots buffer is padded with
+the false sharing range at the beginning and end. See memory layout:
+
+![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.png)
 
 ## About
 
