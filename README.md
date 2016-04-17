@@ -25,18 +25,24 @@ Only a single writer thread can perform enqueue operations and only a
 single reader thread can perform dequeue operations. Any other usage
 is invalid.
 
+### Template parameters
+
+- `T`. Type of element the queue will hold.
+
+### Member funtions
+
 ```cpp
 SPSCQueue<T>(size_t capacity);
 ```
 
-Create a `SPSCqueue` holding items of type `T` with capacity `capacity`.
+Create a `SPSCqueue` holding items of type `T` with capacity
+`capacity`. Capacity need to be greater than 2.
 
 ```cpp
 void emplace(Args &&... args);
 ```
 
-Enqueue an item using inplace construction. Blocks if queue is
-full.
+Enqueue an item using inplace construction. Blocks if queue is full.
 
 ```cpp
 bool try_emplace(Args &&... args);
@@ -70,6 +76,12 @@ and tail pointers are aligned and padded to the false sharing range
 the false sharing range at the beginning and end. See memory layout:
 
 ![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.png)
+
+References:
+
+- *Intel*. [Avoiding and Identifying False Sharing Among Threads](https://software.intel.com/en-us/articles/avoiding-and-identifying-false-sharing-among-threads).
+- *Wikipedia*. [Ring buffer](https://en.wikipedia.org/wiki/Circular_buffer).
+- *Wikipedia*. [False sharing](https://en.wikipedia.org/wiki/False_sharing).
 
 ## About
 
