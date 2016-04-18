@@ -8,7 +8,7 @@ queue written in C++11.
 
 ## Example
 
-```C++
+```cpp
 SPSCQueue<int> q(2);
 auto t = std::thread([&] {
   while (!q.front());
@@ -21,50 +21,36 @@ t.join();
 
 ## Usage
 
+- `SPSCQueue<T>(size_t capacity);`
+
+  Create a `SPSCqueue` holding items of type `T` with capacity
+  `capacity`. Capacity need to be greater than 2.
+
+- `void emplace(Args &&... args);`
+
+  Enqueue an item using inplace construction. Blocks if queue is full.
+
+- `bool try_emplace(Args &&... args);`
+
+  Try to enqueue an item using inplace construction. Returns `true` on
+  success and `false` if queue is full.
+
+- `T *front();`
+
+  Return pointer to front of queue. Returns `nullptr` if queue is
+  empty.
+
+- `pop();`
+
+  Dequeue first elment of queue. Invalid to call if queue is empty.
+
 Only a single writer thread can perform enqueue operations and only a
 single reader thread can perform dequeue operations. Any other usage
 is invalid.
 
-### Template parameters
-
-- `T`. Type of element the queue will hold.
-
-### Member funtions
-
-```cpp
-SPSCQueue<T>(size_t capacity);
-```
-
-Create a `SPSCqueue` holding items of type `T` with capacity
-`capacity`. Capacity need to be greater than 2.
-
-```cpp
-void emplace(Args &&... args);
-```
-
-Enqueue an item using inplace construction. Blocks if queue is full.
-
-```cpp
-bool try_emplace(Args &&... args);
-```
-
-Try to enqueue an item using inplace construction. Returns `true` on
-success and `false` if queue is full.
-
-```cpp
-T *front();
-```
-
-Return pointer to front of queue. Returns `nullptr` if queue is
-empty.
-
-```cpp
-pop();
-```
-
-Dequeue first elment of queue. Invalid to call if queue is empty.
-
 ## Implementation
+
+![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.png)
 
 The underlying implementation is a
 [ring buffer](https://en.wikipedia.org/wiki/Circular_buffer). 
@@ -73,15 +59,24 @@ Care has been taken to make sure to avoid any issues with
 [false sharing](https://en.wikipedia.org/wiki/False_sharing). The head
 and tail pointers are aligned and padded to the false sharing range
 (currently hard coded to 128 bytes). The slots buffer is padded with
-the false sharing range at the beginning and end. See memory layout:
-
-![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.png)
+the false sharing range at the beginning and end.
 
 References:
 
 - *Intel*. [Avoiding and Identifying False Sharing Among Threads](https://software.intel.com/en-us/articles/avoiding-and-identifying-false-sharing-among-threads).
 - *Wikipedia*. [Ring buffer](https://en.wikipedia.org/wiki/Circular_buffer).
 - *Wikipedia*. [False sharing](https://en.wikipedia.org/wiki/False_sharing).
+
+## Testing
+
+Testing lock-free algorithms is hard. I'm using two approaches to test
+the implementation:
+
+- A single threaded test that the functionality works as intended,
+  including that the element constructor and destructor is invoked
+  correctly.
+- A multithreaded fuzz test that all elements are enqueued and
+  dequeued correctly under heavy contention.
 
 ## About
 
