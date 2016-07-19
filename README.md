@@ -78,6 +78,23 @@ the implementation:
 - A multithreaded fuzz test that all elements are enqueued and
   dequeued correctly under heavy contention.
 
+## Benchmarks
+
+Throughput benchmark measures throughput between 2 threads for a
+`SPSCQueue<int>` of size 256.
+
+Latency benchmark measures round trip time between 2 threads
+communicating using 2 queues of type `SPSCQueue<int>`.
+
+The following numbers are for a 2 socket machine with 2 x Intel(R)
+Xeon(R) CPU E5-2620 0 @ 2.00GHz.
+ 
+| NUMA Node / Core / Hyper-Thread | Throughput (ops/ms) | Latency RTT (ns) |
+| ------------------------------- | -------------------:| ----------------:|
+| #0,#0,#0 & #0,#0,#1             |               39978 |              120 |
+| #0,#0,#0 & #0,#1,#0             |               29536 |              285 |
+| #0,#0,#0 & #1,#0,#0             |               19419 |              876 |
+
 ## About
 
 This project was created by [Erik Rigtorp](http://rigtorp.se)
