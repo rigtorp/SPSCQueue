@@ -94,6 +94,17 @@ int main(int argc, char *argv[]) {
   }
   assert(TestType::refCount == 0);
 
+  // Test we throw when capacity < 2
+  {
+    bool throws = false;
+    try {
+      SPSCQueue<int> q(0);
+    } catch (...) {
+      throws = true;
+    }
+    assert(throws);
+  }
+
   // Fuzz and performance test
   {
     const size_t iter = 100000;

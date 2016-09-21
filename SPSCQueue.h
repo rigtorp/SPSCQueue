@@ -31,16 +31,14 @@ namespace rigtorp {
 template <typename T> class SPSCQueue {
 public:
   explicit SPSCQueue(const size_t capacity)
-      : capacity_(capacity), slots_(static_cast<T *>(std::malloc(
-                                 sizeof(T) * (capacity_ + 2 * kPadding)))),
+      : capacity_(capacity),
+        slots_(capacity_ < 2 ? nullptr
+                             : static_cast<T *>(operator new[](
+                                   sizeof(T) * (capacity_ + 2 * kPadding)))),
         head_(0), tail_(0) {
     if (capacity_ < 2) {
       throw std::invalid_argument("size < 2");
     }
-    if (!slots_) {
-      throw std::bad_alloc();
-    }
-
     assert(alignof(SPSCQueue<T>) >= kCacheLineSize);
     assert(reinterpret_cast<char *>(&tail_) -
                reinterpret_cast<char *>(&head_) >=
@@ -51,7 +49,7 @@ public:
     while (front()) {
       pop();
     }
-    std::free(slots_);
+    operator delete[](slots_);
   }
 
   // non-copyable and non-movable
