@@ -35,6 +35,28 @@ t.join();
   Try to enqueue an item using inplace construction. Returns `true` on
   success and `false` if queue is full.
 
+- `void push(const T &v);`
+
+  Enqueue an item using copy construction. Blocks if queue is full.
+  
+- `template <typename P> void push(P &&v);`
+
+  Enqueue an item using move construction. Participates in overload
+  resolution only if `std::is_constructible<T, P&&>::value == true`.
+  Blocks if queue is full.
+
+- `bool try_push(const T &v);`
+
+  Try to enqueue an item using copy construction. Returns `true` on
+  success and `false` if queue is full.
+  
+- `template <typename P> void try_push(P &&v);`
+
+  Try to enqueue an item using move construction. Returns `true` on
+  success and `false` if queue is full. Participates in overload
+  resolution only if `std::is_constructible<T, P&&>::value == true`.
+  Blocks if queue is full.
+
 - `T *front();`
 
   Return pointer to front of queue. Returns `nullptr` if queue is
@@ -42,7 +64,8 @@ t.join();
 
 - `pop();`
 
-  Dequeue first elment of queue. Invalid to call if queue is empty.
+  Dequeue first elment of queue. Invalid to call if queue is
+  empty. Requires `std::is_nothrow_destructible<T>::value == true`.
 
 Only a single writer thread can perform enqueue operations and only a
 single reader thread can perform dequeue operations. Any other usage

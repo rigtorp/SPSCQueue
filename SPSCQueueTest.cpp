@@ -94,6 +94,41 @@ int main(int argc, char *argv[]) {
   }
   assert(TestType::refCount == 0);
 
+  // Copyable only type
+  {
+    struct Test {
+      Test() {}
+      Test(const Test &) {}
+      Test(Test &&) = delete;
+    };
+    SPSCQueue<Test> q(16);
+    // lvalue
+    Test v;
+    q.emplace(v);
+    q.try_emplace(v);
+    q.push(v);
+    q.try_push(v);
+    // xvalue
+    q.push(Test());
+    q.try_push(Test());
+  }
+
+  // Movable only type
+  {
+    SPSCQueue<std::unique_ptr<int>> q(16);
+    // lvalue
+    // auto v = std::unique_ptr<int>(new int(1));
+    // q.emplace(v);
+    // q.try_emplace(v);
+    // q.push(v);
+    // q.try_push(v);
+    // xvalue
+    q.emplace(std::unique_ptr<int>(new int(1)));
+    q.try_emplace(std::unique_ptr<int>(new int(1)));
+    q.push(std::unique_ptr<int>(new int(1)));
+    q.try_push(std::unique_ptr<int>(new int(1)));
+  }
+
   // Test we throw when capacity < 2
   {
     bool throws = false;

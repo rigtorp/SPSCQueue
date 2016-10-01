@@ -25,6 +25,7 @@ SOFTWARE.
 #include <atomic>
 #include <cassert>
 #include <stdexcept>
+#include <type_traits>
 
 namespace rigtorp {
 
@@ -57,6 +58,8 @@ public:
   SPSCQueue &operator=(const SPSCQueue &) = delete;
 
   template <typename... Args> void emplace(Args &&... args) {
+    static_assert(std::is_constructible<T, Args &&...>::value,
+                  "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
     auto const nextHead = (head + 1) % capacity_;
     while (nextHead == tail_.load(std::memory_order_acquire))
@@ -66,6 +69,8 @@ public:
   }
 
   template <typename... Args> bool try_emplace(Args &&... args) {
+    static_assert(std::is_constructible<T, Args &&...>::value,
+                  "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
     auto const nextHead = (head + 1) % capacity_;
     if (nextHead == tail_.load(std::memory_order_acquire)) {
@@ -76,9 +81,29 @@ public:
     return true;
   }
 
-  void push(T &&v) { emplace(std::forward<T>(v)); }
+  void push(const T &v) {
+    static_assert(std::is_copy_constructible<T>::value,
+                  "T must be copy constructible");
+    emplace(v);
+  }
 
-  bool try_push(T &&v) { return try_emplace(std::forward<T>(v)); }
+  template <typename P, typename = typename std::enable_if<
+                            std::is_constructible<T, P &&>::value>::type>
+  void push(P &&v) {
+    emplace(std::forward<P>(v));
+  }
+
+  bool try_push(const T &v) {
+    static_assert(std::is_copy_constructible<T>::value,
+                  "T must be copy constructible");
+    return try_emplace(v);
+  }
+
+  template <typename P, typename = typename std::enable_if<
+                            std::is_constructible<T, P &&>::value>::type>
+  bool try_push(P &&v) {
+    return try_emplace(std::forward<P>(v));
+  }
 
   T *front() {
     auto const tail = tail_.load(std::memory_order_relaxed);
@@ -89,6 +114,8 @@ public:
   }
 
   void pop() {
+    static_assert(std::is_nothrow_destructible<T>::value,
+                  "T must be nothrow destructible");
     auto const tail = tail_.load(std::memory_order_relaxed);
     assert(head_.load(std::memory_order_acquire) != tail);
     slots_[tail + kPadding].~T();
