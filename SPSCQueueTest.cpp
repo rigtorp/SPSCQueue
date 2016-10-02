@@ -108,9 +108,40 @@ int main(int argc, char *argv[]) {
     q.try_emplace(v);
     q.push(v);
     q.try_push(v);
+    static_assert(noexcept(q.emplace(v)) == false, "");
+    static_assert(noexcept(q.try_emplace(v)) == false, "");
+    static_assert(noexcept(q.push(v)) == false, "");
+    static_assert(noexcept(q.try_push(v)) == false, "");
     // xvalue
     q.push(Test());
     q.try_push(Test());
+    static_assert(noexcept(q.push(Test())) == false, "");
+    static_assert(noexcept(q.try_push(Test())) == false, "");
+  }
+
+  // Copyable only type (noexcept)
+  {
+    struct Test {
+      Test() noexcept {}
+      Test(const Test &) noexcept {}
+      Test(Test &&) = delete;
+    };
+    SPSCQueue<Test> q(16);
+    // lvalue
+    Test v;
+    q.emplace(v);
+    q.try_emplace(v);
+    q.push(v);
+    q.try_push(v);
+    static_assert(noexcept(q.emplace(v)) == true, "");
+    static_assert(noexcept(q.try_emplace(v)) == true, "");
+    static_assert(noexcept(q.push(v)) == true, "");
+    static_assert(noexcept(q.try_push(v)) == true, "");
+    // xvalue
+    q.push(Test());
+    q.try_push(Test());
+    static_assert(noexcept(q.push(Test())) == true, "");
+    static_assert(noexcept(q.try_push(Test())) == true, "");
   }
 
   // Movable only type
@@ -127,6 +158,11 @@ int main(int argc, char *argv[]) {
     q.try_emplace(std::unique_ptr<int>(new int(1)));
     q.push(std::unique_ptr<int>(new int(1)));
     q.try_push(std::unique_ptr<int>(new int(1)));
+    auto v = std::unique_ptr<int>(new int(1));
+    static_assert(noexcept(q.emplace(std::move(v))) == true, "");
+    static_assert(noexcept(q.try_emplace(std::move(v))) == true, "");
+    static_assert(noexcept(q.push(std::move(v))) == true, "");
+    static_assert(noexcept(q.try_push(std::move(v))) == true, "");
   }
 
   // Test we throw when capacity < 2

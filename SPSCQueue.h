@@ -57,7 +57,9 @@ public:
   SPSCQueue(const SPSCQueue &) = delete;
   SPSCQueue &operator=(const SPSCQueue &) = delete;
 
-  template <typename... Args> void emplace(Args &&... args) {
+  template <typename... Args>
+  void emplace(Args &&... args) noexcept(
+      std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
@@ -68,7 +70,9 @@ public:
     head_.store(nextHead, std::memory_order_release);
   }
 
-  template <typename... Args> bool try_emplace(Args &&... args) {
+  template <typename... Args>
+  bool try_emplace(Args &&... args) noexcept(
+      std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
@@ -81,7 +85,7 @@ public:
     return true;
   }
 
-  void push(const T &v) {
+  void push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
     static_assert(std::is_copy_constructible<T>::value,
                   "T must be copy constructible");
     emplace(v);
@@ -89,11 +93,12 @@ public:
 
   template <typename P, typename = typename std::enable_if<
                             std::is_constructible<T, P &&>::value>::type>
-  void push(P &&v) {
+  void push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
     emplace(std::forward<P>(v));
   }
 
-  bool try_push(const T &v) {
+  bool
+  try_push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
     static_assert(std::is_copy_constructible<T>::value,
                   "T must be copy constructible");
     return try_emplace(v);
@@ -101,11 +106,11 @@ public:
 
   template <typename P, typename = typename std::enable_if<
                             std::is_constructible<T, P &&>::value>::type>
-  bool try_push(P &&v) {
+  bool try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
     return try_emplace(std::forward<P>(v));
   }
 
-  T *front() {
+  T *front() noexcept {
     auto const tail = tail_.load(std::memory_order_relaxed);
     if (head_.load(std::memory_order_acquire) == tail) {
       return nullptr;
@@ -113,7 +118,7 @@ public:
     return &slots_[tail + kPadding];
   }
 
-  void pop() {
+  void pop() noexcept {
     static_assert(std::is_nothrow_destructible<T>::value,
                   "T must be nothrow destructible");
     auto const tail = tail_.load(std::memory_order_relaxed);
@@ -123,7 +128,7 @@ public:
     tail_.store(nextTail, std::memory_order_release);
   }
 
-  size_t size() const {
+  size_t size() const noexcept {
     ssize_t diff = head_.load(std::memory_order_acquire) -
                    tail_.load(std::memory_order_acquire);
     if (diff < 0) {
@@ -132,9 +137,9 @@ public:
     return diff;
   }
 
-  bool empty() const { return size() == 0; }
+  bool empty() const noexcept { return size() == 0; }
 
-  size_t capacity() const { return capacity_; }
+  size_t capacity() const noexcept { return capacity_; }
 
 private:
   static constexpr size_t kCacheLineSize = 128;
