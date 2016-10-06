@@ -63,6 +63,7 @@ struct TestType {
 std::set<const TestType *> TestType::constructed;
 
 int main(int argc, char *argv[]) {
+  (void)argc, (void)argv;
 
   using namespace rigtorp;
 
