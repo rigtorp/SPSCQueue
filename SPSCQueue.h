@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2016 Erik Rigtorp <erik@rigtorp.se>
+Copyright (c) 2017 Erik Rigtorp <erik@rigtorp.se>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -63,7 +63,10 @@ public:
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
-    auto const nextHead = (head + 1) % capacity_;
+    auto nextHead = head + 1;
+    if (nextHead == capacity_) {
+      nextHead = 0;
+    }
     while (nextHead == tail_.load(std::memory_order_acquire))
       ;
     new (&slots_[head + kPadding]) T(std::forward<Args>(args)...);
@@ -76,7 +79,10 @@ public:
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const head = head_.load(std::memory_order_relaxed);
-    auto const nextHead = (head + 1) % capacity_;
+    auto nextHead = head + 1;
+    if (nextHead == capacity_) {
+      nextHead = 0;
+    }
     if (nextHead == tail_.load(std::memory_order_acquire)) {
       return false;
     }
@@ -124,7 +130,10 @@ public:
     auto const tail = tail_.load(std::memory_order_relaxed);
     assert(head_.load(std::memory_order_acquire) != tail);
     slots_[tail + kPadding].~T();
-    auto const nextTail = (tail + 1) % capacity_;
+    auto nextTail = tail + 1;
+    if (nextTail == capacity_) {
+      nextTail = 0;
+    }
     tail_.store(nextTail, std::memory_order_release);
   }
 
