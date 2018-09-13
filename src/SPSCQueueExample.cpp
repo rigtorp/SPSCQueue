@@ -1,5 +1,5 @@
-#include "SPSCQueue.h"
 #include <iostream>
+#include <rigtorp/SPSCQueue.h>
 #include <thread>
 
 int main(int argc, char *argv[]) {
