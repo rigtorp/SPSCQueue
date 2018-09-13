@@ -43,7 +43,7 @@ public:
     assert(alignof(SPSCQueue<T>) >= kCacheLineSize);
     assert(reinterpret_cast<char *>(&tail_) -
                reinterpret_cast<char *>(&head_) >=
-           kCacheLineSize);
+           static_cast<ssize_t>(kCacheLineSize));
   }
 
   ~SPSCQueue() {
@@ -167,4 +167,4 @@ private:
   // Padding to avoid adjacent allocations to share cache line with tail_
   char padding_[kCacheLineSize - sizeof(tail_)];
 };
-}
+} // namespace rigtorp
