@@ -1,14 +1,25 @@
-cmake_minimum_required(VERSION 2.8)
-project(SPSCQueue)
+cmake_minimum_required(VERSION 3.2)
+project(SPSCQueue CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS "true")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -pedantic")
+set(CMAKE_CXX_STANDARD 11)
 
-link_libraries(pthread rt)
+add_library(SPSCQueue INTERFACE)
+target_include_directories(SPSCQueue INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+target_compile_options(SPSCQueue INTERFACE -Wall -Wextra -Wpedantic -Werror)
 
-add_executable(SPSCQueueBenchmark SPSCQueueBenchmark.cpp)
-add_executable(SPSCQueueExample SPSCQueueExample.cpp)
-add_executable(SPSCQueueTest SPSCQueueTest.cpp)
+find_package(Threads REQUIRED)
+
+add_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
+target_link_libraries(SPSCQueueBenchmark SPSCQueue Threads::Threads)
+
+add_executable(SPSCQueueExample src/SPSCQueueExample.cpp)
+target_link_libraries(SPSCQueueExample SPSCQueue Threads::Threads)
+
+add_executable(SPSCQueueTest src/SPSCQueueTest.cpp)
+target_link_libraries(SPSCQueueTest SPSCQueue Threads::Threads)
 
 enable_testing()
 add_test(SPSCQueueTest SPSCQueueTest)
