@@ -55,7 +55,6 @@ t.join();
   Try to enqueue an item using move construction. Returns `true` on
   success and `false` if queue is full. Participates in overload
   resolution only if `std::is_constructible<T, P&&>::value == true`.
-  Blocks if queue is full.
 
 - `T *front();`
 
