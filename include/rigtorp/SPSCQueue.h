@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include <atomic>
 #include <cassert>
+#include <cstddef>
 #include <stdexcept>
 #include <type_traits>
 
@@ -43,7 +44,7 @@ public:
     assert(alignof(SPSCQueue<T>) >= kCacheLineSize);
     assert(reinterpret_cast<char *>(&tail_) -
                reinterpret_cast<char *>(&head_) >=
-           static_cast<ptrdiff_t>(kCacheLineSize));
+           static_cast<std::ptrdiff_t>(kCacheLineSize));
   }
 
   ~SPSCQueue() {
