@@ -117,6 +117,13 @@ Xeon(R) CPU E5-2620 0 @ 2.00GHz.
 | #0,#0,#0 & #0,#1,#0             |               37739 |              238 |
 | #0,#0,#0 & #1,#0,#0             |               25744 |              768 |
 
+## Cited by
+
+SPSCQueue have been cited by the following papers:
+- Peizhao Ou and Brian Demsky. 2018. Towards understanding the costs of avoiding
+  out-of-thin-air results. Proc. ACM Program. Lang. 2, OOPSLA, Article 136
+  (October 2018), 29 pages. DOI: https://doi.org/10.1145/3276506 
+
 ## About
 
 This project was created by [Erik Rigtorp](http://rigtorp.se)
