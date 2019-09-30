@@ -139,12 +139,12 @@ public:
   }
 
   size_t size() const noexcept {
-    ssize_t diff = head_.load(std::memory_order_acquire) -
-                   tail_.load(std::memory_order_acquire);
+    std::ptrdiff_t diff = head_.load(std::memory_order_acquire) -
+                          tail_.load(std::memory_order_acquire);
     if (diff < 0) {
       diff += capacity_;
     }
-    return diff;
+    return static_cast<size_t>(diff);
   }
 
   bool empty() const noexcept { return size() == 0; }
