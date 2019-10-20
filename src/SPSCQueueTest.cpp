@@ -71,6 +71,8 @@ int main(int argc, char *argv[]) {
   {
     SPSCQueue<TestType> q(11);
     assert(q.front() == nullptr);
+    TestType t;
+    assert(!q.try_pop(t));
     assert(q.size() == 0);
     assert(q.empty() == true);
     assert(q.capacity() == 11);
@@ -80,14 +82,17 @@ int main(int argc, char *argv[]) {
     assert(q.front() != nullptr);
     assert(q.size() == 10);
     assert(q.empty() == false);
-    assert(TestType::constructed.size() == 10);
+    assert(TestType::constructed.size() == 11);
     assert(q.try_emplace() == false);
     q.pop();
     assert(q.size() == 9);
-    assert(TestType::constructed.size() == 9);
+    assert(TestType::constructed.size() == 10);
     q.pop();
     assert(q.try_emplace() == true);
-    assert(TestType::constructed.size() == 9);
+    assert(TestType::constructed.size() == 10);
+    assert(q.try_pop(t));
+    assert(q.try_emplace() == true);
+    assert(TestType::constructed.size() == 10);
   }
   assert(TestType::constructed.size() == 0);
 

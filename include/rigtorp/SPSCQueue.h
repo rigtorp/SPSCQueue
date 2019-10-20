@@ -138,6 +138,24 @@ public:
     tail_.store(nextTail, std::memory_order_release);
   }
 
+  bool try_pop(T &v) noexcept {
+    static_assert(std::is_nothrow_destructible<T>::value,
+                  "T must be nothrow destructible");
+    auto const tail = tail_.load(std::memory_order_relaxed);
+    if (head_.load(std::memory_order_acquire) == tail) {
+      return false;
+    }
+    auto&& slot = slots_[tail + kPadding];
+    v = std::move(slot);
+    slot.~T();
+    auto nextTail = tail + 1;
+    if (nextTail == capacity_) {
+      nextTail = 0;
+    }
+    tail_.store(nextTail, std::memory_order_release);
+    return true;
+  }
+
   size_t size() const noexcept {
     std::ptrdiff_t diff = head_.load(std::memory_order_acquire) -
                           tail_.load(std::memory_order_acquire);
