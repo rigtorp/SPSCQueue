@@ -173,7 +173,7 @@ int main(int argc, char *argv[]) {
     bool throws = false;
     try {
       SPSCQueue<int> q(SIZE_MAX - 1);
-    } catch (const std::bad_alloc &) {
+    } catch (...) {
       throws = true;
     }
     assert(throws);
