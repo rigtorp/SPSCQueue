@@ -17,7 +17,7 @@ target_include_directories(SPSCQueue INTERFACE
 
 find_package(Threads REQUIRED)
 
-if (NOT MSVC)
+if (UNIX AND NOT APPLE)
     add_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
     target_link_libraries(SPSCQueueBenchmark SPSCQueue Threads::Threads)
 endif()
