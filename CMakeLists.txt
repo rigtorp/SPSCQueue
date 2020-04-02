@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 11)
 if(MSVC)
     add_compile_options(/permissive- /W4)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 add_library(SPSCQueue INTERFACE)
