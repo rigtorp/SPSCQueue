@@ -42,7 +42,8 @@ public:
     if (capacity_ < 2) {
       throw std::invalid_argument("size < 2");
     }
-    assert(alignof(SPSCQueue<T>) >= kCacheLineSize);
+    static_assert(alignof(SPSCQueue<T>) == kCacheLineSize, "");
+    static_assert(sizeof(SPSCQueue<T>) >= 3 * kCacheLineSize, "");
     assert(reinterpret_cast<char *>(&tail_) -
                reinterpret_cast<char *>(&head_) >=
            static_cast<std::ptrdiff_t>(kCacheLineSize));
