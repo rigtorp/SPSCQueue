@@ -25,23 +25,25 @@ SOFTWARE.
 #include <atomic>
 #include <cassert>
 #include <cstddef>
-#include <new>
+#include <memory> // std::allocator
+#include <new>    // std::hardware_destructive_interference_size
 #include <stdexcept>
 #include <type_traits>
 
 namespace rigtorp {
 
-template <typename T> class SPSCQueue {
+template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
 public:
-  explicit SPSCQueue(const size_t capacity)
-      : capacity_(capacity),
-        slots_(capacity_ < 2 ? nullptr
-                             : static_cast<T *>(operator new[](
-                                   sizeof(T) * (capacity_ + 2 * kPadding)))),
-        head_(0), tail_(0) {
+  explicit SPSCQueue(const size_t capacity,
+                     const Allocator &allocator = Allocator())
+      : capacity_(capacity), allocator_(allocator), head_(0), tail_(0) {
     if (capacity_ < 2) {
       throw std::invalid_argument("size < 2");
     }
+
+    slots_ = std::allocator_traits<Allocator>::allocate(
+        allocator_, capacity_ + 2 * kPadding);
+
     static_assert(alignof(SPSCQueue<T>) == kCacheLineSize, "");
     static_assert(sizeof(SPSCQueue<T>) >= 3 * kCacheLineSize, "");
     assert(reinterpret_cast<char *>(&tail_) -
@@ -53,7 +55,8 @@ public:
     while (front()) {
       pop();
     }
-    operator delete[](slots_);
+    std::allocator_traits<Allocator>::deallocate(allocator_, slots_,
+                                                 capacity_ + 2 * kPadding);
   }
 
   // non-copyable and non-movable
@@ -165,8 +168,13 @@ private:
   static constexpr size_t kPadding = (kCacheLineSize - 1) / sizeof(T) + 1;
 
 private:
-  const size_t capacity_;
-  T *const slots_;
+  size_t capacity_;
+  T *slots_;
+#if defined(__has_cpp_attribute) && __has_cpp_attribute(no_unique_address)
+  Allocator allocator_ [[no_unique_address]];
+#else
+  Allocator allocator_;
+#endif
 
   // Align to avoid false sharing between head_ and tail_
   alignas(kCacheLineSize) std::atomic<size_t> head_;
