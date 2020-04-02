@@ -69,11 +69,11 @@ int main(int argc, char *argv[]) {
 
   // Functionality test
   {
-    SPSCQueue<TestType> q(11);
+    SPSCQueue<TestType> q(10);
     assert(q.front() == nullptr);
     assert(q.size() == 0);
     assert(q.empty() == true);
-    assert(q.capacity() == 11);
+    assert(q.capacity() == 10);
     for (int i = 0; i < 10; i++) {
       q.emplace();
     }
@@ -162,12 +162,18 @@ int main(int argc, char *argv[]) {
     static_assert(noexcept(q.try_push(std::move(v))) == true, "");
   }
 
-  // Test we throw when capacity < 2
+  // capacity < 1
+  {
+    SPSCQueue<int> q(0);
+    assert(q.capacity() == 1);
+  }
+
+  // Check that padding doesn't overflow capacity
   {
     bool throws = false;
     try {
-      SPSCQueue<int> q(0);
-    } catch (...) {
+      SPSCQueue<int> q(SIZE_MAX - 1);
+    } catch (const std::bad_alloc &) {
       throws = true;
     }
     assert(throws);
