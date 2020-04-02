@@ -37,8 +37,14 @@ public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
       : capacity_(capacity), allocator_(allocator), head_(0), tail_(0) {
-    if (capacity_ < 2) {
-      throw std::invalid_argument("size < 2");
+    // The queue needs at least one element
+    if (capacity_ < 1) {
+      capacity_ = 1;
+    }
+    capacity_++; // Needs one slack element
+    // Prevent overflowing size_t
+    if (capacity_ > SIZE_MAX - 2 * kPadding) {
+      capacity_ = SIZE_MAX - 2 * kPadding;
     }
 
     slots_ = std::allocator_traits<Allocator>::allocate(
@@ -154,7 +160,7 @@ public:
 
   bool empty() const noexcept { return size() == 0; }
 
-  size_t capacity() const noexcept { return capacity_; }
+  size_t capacity() const noexcept { return capacity_ - 1; }
 
 private:
 #ifdef __cpp_lib_hardware_interference_size
