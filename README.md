@@ -80,7 +80,7 @@ The underlying implementation is a
 Care has been taken to make sure to avoid any issues with
 [false sharing](https://en.wikipedia.org/wiki/False_sharing). The head
 and tail pointers are aligned and padded to the false sharing range
-(currently hard coded to 128 bytes). The slots buffer is padded with
+(cache line size). The slots buffer is padded with
 the false sharing range at the beginning and end.
 
 References:
