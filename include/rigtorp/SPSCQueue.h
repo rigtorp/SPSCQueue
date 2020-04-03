@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2018 Erik Rigtorp <erik@rigtorp.se>
+Copyright (c) 2020 Erik Rigtorp <erik@rigtorp.se>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,11 +28,23 @@ SOFTWARE.
 #include <memory> // std::allocator
 #include <new>    // std::hardware_destructive_interference_size
 #include <stdexcept>
-#include <type_traits>
+#include <type_traits> // std::enable_if, std::is_*_constructible
 
 namespace rigtorp {
 
 template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
+
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+  template <typename Alloc2, typename = void>
+  struct has_allocate_at_least : std::false_type {};
+
+  template <typename Alloc2>
+  struct has_allocate_at_least<
+      Alloc2, std::void_t<typename Alloc2::value_type,
+                          decltype(std::declval<Alloc2 &>().allocate_at_least(
+                              size_t{}))>> : std::true_type {};
+#endif
+
 public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
@@ -47,8 +59,19 @@ public:
       capacity_ = SIZE_MAX - 2 * kPadding;
     }
 
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+    if constexpr (has_allocate_at_least<Allocator>::value) {
+      auto res = allocator_.allocate_at_least(capacity_ + 2 * kPadding);
+      slots_ = res.ptr;
+      capacity_ = res.count - 2 * kPadding;
+    } else {
+      slots_ = std::allocator_traits<Allocator>::allocate(
+          allocator_, capacity_ + 2 * kPadding);
+    }
+#else
     slots_ = std::allocator_traits<Allocator>::allocate(
         allocator_, capacity_ + 2 * kPadding);
+#endif
 
     static_assert(alignof(SPSCQueue<T>) == kCacheLineSize, "");
     static_assert(sizeof(SPSCQueue<T>) >= 3 * kCacheLineSize, "");
