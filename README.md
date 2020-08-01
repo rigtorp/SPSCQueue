@@ -151,6 +151,13 @@ the implementation:
 - A multithreaded fuzz test that all elements are enqueued and
   dequeued correctly under heavy contention.
 
+Use `cmake` to run tests, for example (needs at least cmake 3.13):
+```
+cmake -S . -B cmake_build
+cmake --build cmake_build
+cmake_build/SPSCQueueTest
+```
+
 ## Benchmarks
 
 Throughput benchmark measures throughput between 2 threads for a
