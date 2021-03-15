@@ -10,7 +10,7 @@ queue written in C++11.
 ## Example
 
 ```cpp
-SPSCQueue<int> q(2);
+SPSCQueue<int> q(1);
 auto t = std::thread([&] {
   while (!q.front());
   std::cout << *q.front() << std::endl;
@@ -27,7 +27,7 @@ See `src/SPSCQueueExample.cpp` for the full example.
 - `SPSCQueue<T>(size_t capacity);`
 
   Create a `SPSCqueue` holding items of type `T` with capacity
-  `capacity`. Capacity need to be greater than 2.
+  `capacity`. Capacity needs to be at least 1.
 
 - `void emplace(Args &&... args);`
 
@@ -134,6 +134,10 @@ and tail pointers are aligned and padded to the false sharing range
 (cache line size). The slots buffer is padded with
 the false sharing range at the beginning and end.
 
+This implementation allows for arbitrary non-power of two capacities, instead
+allocating a extra queue slot to indicate full queue. If you don't want to waste
+storage for a extra queue slot you should use a different implementation.
+
 References:
 
 - *Intel*. [Avoiding and Identifying False Sharing Among Threads](https://software.intel.com/en-us/articles/avoiding-and-identifying-false-sharing-among-threads).
@@ -163,7 +167,7 @@ The following numbers are for a 2 socket machine with 2 x Intel(R)
 Xeon(R) CPU E5-2620 0 @ 2.00GHz.
  
 | NUMA Node / Core / Hyper-Thread | Throughput (ops/ms) | Latency RTT (ns) |
-| ------------------------------- | -------------------:| ----------------:|
+| ------------------------------- | ------------------: | ---------------: |
 | #0,#0,#0 & #0,#0,#1             |               63942 |               60 |
 | #0,#0,#0 & #0,#1,#0             |               37739 |              238 |
 | #0,#0,#0 & #1,#0,#0             |               25744 |              768 |
