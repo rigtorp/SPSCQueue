@@ -88,9 +88,10 @@ C++17 is enabled.
 
 The library currently doesn't include a huge page allocator since the APIs for
 allocating huge pages are platform dependent and handling of huge page size and
-NUMA awareness is application specific. 
+NUMA awareness is application specific.
 
 Below is an example huge page allocator for Linux:
+
 ```cpp
 #include <sys/mman.h>
 
@@ -194,12 +195,14 @@ running on different cores on the same chiplet:
 | SPSCQueue                       |              362723 |              133 |
 | boost::lockfree::spsc           |              209877 |              222 |
 | folly::ProducerConsumerQueue    |              148818 |              147 |
+
 ## Cited by
 
 SPSCQueue have been cited by the following papers:
+
 - Peizhao Ou and Brian Demsky. 2018. Towards understanding the costs of avoiding
   out-of-thin-air results. Proc. ACM Program. Lang. 2, OOPSLA, Article 136
-  (October 2018), 29 pages. DOI: https://doi.org/10.1145/3276506 
+  (October 2018), 29 pages. DOI: <https://doi.org/10.1145/3276506>
 
 ## About
 
