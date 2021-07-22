@@ -190,11 +190,11 @@ Latency benchmark measures round trip time between 2 threads communicating using
 Benchmark results for a AMD Ryzen 9 3900X 12-Core Processor, the 2 threads are
 running on different cores on the same chiplet:
 
-| NUMA Node / Core / Hyper-Thread | Throughput (ops/ms) | Latency RTT (ns) |
-| ------------------------------- | ------------------: | ---------------: |
-| SPSCQueue                       |              362723 |              133 |
-| boost::lockfree::spsc           |              209877 |              222 |
-| folly::ProducerConsumerQueue    |              148818 |              147 |
+| Queue                        | Throughput (ops/ms) | Latency RTT (ns) |
+| ---------------------------- | ------------------: | ---------------: |
+| SPSCQueue                    |              362723 |              133 |
+| boost::lockfree::spsc        |              209877 |              222 |
+| folly::ProducerConsumerQueue |              148818 |              147 |
 
 ## Cited by
 
