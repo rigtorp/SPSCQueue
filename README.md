@@ -3,8 +3,10 @@
 [![C/C++ CI](https://github.com/rigtorp/SPSCQueue/workflows/C/C++%20CI/badge.svg)](https://github.com/rigtorp/SPSCQueue/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/rigtorp/SPSCQueue/master/LICENSE)
 
-A single producer single consumer wait-free and lock-free fixed size
-queue written in C++11.
+A single producer single consumer wait-free and lock-free fixed size queue
+written in C++11. This implementation is faster than both
+[*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html)
+and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md).
 
 ## Example
 
@@ -122,16 +124,38 @@ pages on Linux.
 
 ## Implementation
 
-![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.png)
+![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.svg)
 
-The underlying implementation is a
-[ring buffer](https://en.wikipedia.org/wiki/Circular_buffer). 
+The underlying implementation is based on a [ring
+buffer](https://en.wikipedia.org/wiki/Circular_buffer).
 
-Care has been taken to make sure to avoid any issues with
-[false sharing](https://en.wikipedia.org/wiki/False_sharing). The head
-and tail pointers are aligned and padded to the false sharing range
-(cache line size). The slots buffer is padded with
-the false sharing range at the beginning and end.
+Care has been taken to make sure to avoid any issues with [false
+sharing](https://en.wikipedia.org/wiki/False_sharing). The head and tail indices
+are aligned and padded to the false sharing range (cache line size).
+Additionally the slots buffer is padded with the false sharing range at the
+beginning and end, this prevents false sharing with any adjacent allocations.
+
+This implementation has higher throughput than a typical concurrent ring buffer
+by locally caching the head and tail indices in the writer and reader
+respectively. The caching increases throughput by reducing the amount of cache
+coherency traffic.
+
+To understand how that works first consider a read operation in absence of
+caching: the head index (read index) needs to be updated and thus that cache
+line is loaded into the L1 cache in exclusive state. The tail (write index)
+needs to be read in order to check that the queue is not empty and is thus
+loaded into the L1 cache in shared state. Since a queue write operation needs to
+read the head index it's likely that a write operation requires some cache
+coherency traffic to bring the head index cache line back into exclusive state.
+In the worst case there will be one cache line transition from shared to
+exclusive for every read and write operation.
+
+Next consider a queue reader that caches the tail index: if the cached tail
+index indicates that the queue is empty, then load the tail index into the
+cached tail index. If the queue was non-empty multiple read operations up until
+the cached tail index can complete without stealing the writer's tail index
+cache line's exclusive state. Cache coherency traffic is therefore reduced. An
+analogous argument can be made for the queue write operation.
 
 This implementation allows for arbitrary non-power of two capacities, instead
 allocating a extra queue slot to indicate full queue. If you don't want to waste
@@ -151,26 +175,25 @@ the implementation:
 - A single threaded test that the functionality works as intended,
   including that the element constructor and destructor is invoked
   correctly.
-- A multithreaded fuzz test that all elements are enqueued and
+- A multi-threaded fuzz test that all elements are enqueued and
   dequeued correctly under heavy contention.
 
 ## Benchmarks
 
-Throughput benchmark measures throughput between 2 threads for a
-`SPSCQueue<int>` of size 256.
+Throughput benchmark measures throughput between 2 threads for a queue of `int`
+elements.
 
-Latency benchmark measures round trip time between 2 threads
-communicating using 2 queues of type `SPSCQueue<int>`.
+Latency benchmark measures round trip time between 2 threads communicating using
+2 queues of `int` elements.
 
-The following numbers are for a 2 socket machine with 2 x Intel(R)
-Xeon(R) CPU E5-2620 0 @ 2.00GHz.
- 
+Benchmark results for a AMD Ryzen 9 3900X 12-Core Processor, the 2 threads are
+running on different cores on the same chiplet:
+
 | NUMA Node / Core / Hyper-Thread | Throughput (ops/ms) | Latency RTT (ns) |
 | ------------------------------- | ------------------: | ---------------: |
-| #0,#0,#0 & #0,#0,#1             |               63942 |               60 |
-| #0,#0,#0 & #0,#1,#0             |               37739 |              238 |
-| #0,#0,#0 & #1,#0,#0             |               25744 |              768 |
-
+| SPSCQueue                       |              362723 |              133 |
+| boost::lockfree::spsc           |              209877 |              222 |
+| folly::ProducerConsumerQueue    |              148818 |              147 |
 ## Cited by
 
 SPSCQueue have been cited by the following papers:

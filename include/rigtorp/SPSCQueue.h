@@ -48,7 +48,7 @@ template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
 public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
-      : capacity_(capacity), allocator_(allocator), writeIdx_(0), readIdx_(0) {
+      : capacity_(capacity), allocator_(allocator) {
     // The queue needs at least one element
     if (capacity_ < 1) {
       capacity_ = 1;
@@ -93,7 +93,7 @@ public:
   SPSCQueue &operator=(const SPSCQueue &) = delete;
 
   template <typename... Args>
-  void emplace(Args &&... args) noexcept(
+  void emplace(Args &&...args) noexcept(
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
@@ -102,14 +102,15 @@ public:
     if (nextWriteIdx == capacity_) {
       nextWriteIdx = 0;
     }
-    while (nextWriteIdx == readIdx_.load(std::memory_order_acquire))
-      ;
+    while (nextWriteIdx == readIdxCache_) {
+      readIdxCache_ = readIdx_.load(std::memory_order_acquire);
+    }
     new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
   }
 
   template <typename... Args>
-  bool try_emplace(Args &&... args) noexcept(
+  bool try_emplace(Args &&...args) noexcept(
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
@@ -118,8 +119,11 @@ public:
     if (nextWriteIdx == capacity_) {
       nextWriteIdx = 0;
     }
-    if (nextWriteIdx == readIdx_.load(std::memory_order_acquire)) {
-      return false;
+    if (nextWriteIdx == readIdxCache_) {
+      readIdxCache_ = readIdx_.load(std::memory_order_acquire);
+      if (nextWriteIdx == readIdxCache_) {
+        return false;
+      }
     }
     new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
@@ -153,8 +157,11 @@ public:
 
   T *front() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
-    if (writeIdx_.load(std::memory_order_acquire) == readIdx) {
-      return nullptr;
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
+      if (writeIdxCache_ == readIdx) {
+        return nullptr;
+      }
     }
     return &slots_[readIdx + kPadding];
   }
@@ -205,11 +212,16 @@ private:
   Allocator allocator_;
 #endif
 
-  // Align to avoid false sharing between writeIdx_ and readIdx_
-  alignas(kCacheLineSize) std::atomic<size_t> writeIdx_;
-  alignas(kCacheLineSize) std::atomic<size_t> readIdx_;
+  // Align to cache line size in order to avoid false sharing
+  // readIdxCache_ and writeIdxCache_ is used to reduce the amount of cache
+  // coherency traffic
+  alignas(kCacheLineSize) std::atomic<size_t> writeIdx_ = {0};
+  alignas(kCacheLineSize) size_t readIdxCache_ = 0;
+  alignas(kCacheLineSize) std::atomic<size_t> readIdx_ = {0};
+  alignas(kCacheLineSize) size_t writeIdxCache_ = 0;
 
-  // Padding to avoid adjacent allocations to share cache line with readIdx_
-  char padding_[kCacheLineSize - sizeof(readIdx_)];
+  // Padding to avoid adjacent allocations to share cache line with
+  // writeIdxCache_
+  char padding_[kCacheLineSize - sizeof(writeIdxCache_)];
 };
 } // namespace rigtorp

@@ -25,6 +25,14 @@ SOFTWARE.
 #include <rigtorp/SPSCQueue.h>
 #include <thread>
 
+#if __has_include(<boost/lockfree/spsc_queue.hpp> )
+#include <boost/lockfree/spsc_queue.hpp>
+#endif
+
+#if __has_include(<folly/ProducerConsumerQueue.h>)
+#include <folly/ProducerConsumerQueue.h>
+#endif
+
 void pinThread(int cpu) {
   if (cpu < 0) {
     return;
@@ -52,9 +60,13 @@ int main(int argc, char *argv[]) {
     cpu2 = std::stoi(argv[2]);
   }
 
+  const size_t queueSize = 10000000;
+  const int64_t iters = 10000000;
+
+  std::cout << "SPSCQueue:" << std::endl;
+
   {
-    const int64_t iters = 1000000000;
-    SPSCQueue<int> q(256);
+    SPSCQueue<int> q(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
       for (int i = 0; i < iters; ++i) {
@@ -83,8 +95,7 @@ int main(int argc, char *argv[]) {
   }
 
   {
-    const int64_t iters = 100000000;
-    SPSCQueue<int> q1(256), q2(256);
+    SPSCQueue<int> q1(queueSize), q2(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
       for (int i = 0; i < iters; ++i) {
@@ -112,6 +123,136 @@ int main(int argc, char *argv[]) {
                      iters
               << " ns RTT" << std::endl;
   }
+
+#if __has_include(<boost/lockfree/spsc_queue.hpp> )
+  std::cout << "boost::lockfree::spsc:" << std::endl;
+  {
+    boost::lockfree::spsc_queue<int> q(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        int val;
+        while (q.pop(&val, 1) != 1)
+          ;
+        if (val != i) {
+          throw std::runtime_error("");
+        }
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      while (!q.push(i))
+        ;
+    }
+    t.join();
+    auto stop = std::chrono::steady_clock::now();
+    std::cout << iters * 1000000 /
+                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                          start)
+                         .count()
+              << " ops/ms" << std::endl;
+  }
+
+  {
+    boost::lockfree::spsc_queue<int> q1(queueSize), q2(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        int val;
+        while (q1.pop(&val, 1) != 1)
+          ;
+        while (!q2.push(val))
+          ;
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      while (!q1.push(i))
+        ;
+      int val;
+      while (q2.pop(&val, 1) != 1)
+        ;
+    }
+    auto stop = std::chrono::steady_clock::now();
+    t.join();
+    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                      start)
+                         .count() /
+                     iters
+              << " ns RTT" << std::endl;
+  }
+#endif
+
+#if __has_include(<folly/ProducerConsumerQueue.h>)
+  std::cout << "folly::ProducerConsumerQueue:" << std::endl;
+
+  {
+    folly::ProducerConsumerQueue<int> q(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        int val;
+        while (!q.read(val))
+          ;
+        if (val != i) {
+          throw std::runtime_error("");
+        }
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      while (!q.write(i))
+        ;
+    }
+    t.join();
+    auto stop = std::chrono::steady_clock::now();
+    std::cout << iters * 1000000 /
+                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                          start)
+                         .count()
+              << " ops/ms" << std::endl;
+  }
+
+  {
+    folly::ProducerConsumerQueue<int> q1(queueSize), q2(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        int val;
+        while (!q1.read(val))
+          ;
+        q2.write(val);
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      while (!q1.write(i))
+        ;
+      int val;
+      while (!q2.read(val))
+        ;
+    }
+    auto stop = std::chrono::steady_clock::now();
+    t.join();
+    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                      start)
+                         .count() /
+                     iters
+              << " ns RTT" << std::endl;
+  }
+#endif
 
   return 0;
 }
