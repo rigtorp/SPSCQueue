@@ -48,7 +48,7 @@ template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
 public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
-      : capacity_(capacity), allocator_(allocator), head_(0), tail_(0) {
+      : capacity_(capacity), allocator_(allocator), writeIdx_(0), readIdx_(0) {
     // The queue needs at least one element
     if (capacity_ < 1) {
       capacity_ = 1;
@@ -75,8 +75,8 @@ public:
 
     static_assert(alignof(SPSCQueue<T>) == kCacheLineSize, "");
     static_assert(sizeof(SPSCQueue<T>) >= 3 * kCacheLineSize, "");
-    assert(reinterpret_cast<char *>(&tail_) -
-               reinterpret_cast<char *>(&head_) >=
+    assert(reinterpret_cast<char *>(&readIdx_) -
+               reinterpret_cast<char *>(&writeIdx_) >=
            static_cast<std::ptrdiff_t>(kCacheLineSize));
   }
 
@@ -97,15 +97,15 @@ public:
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
-    auto const head = head_.load(std::memory_order_relaxed);
-    auto nextHead = head + 1;
-    if (nextHead == capacity_) {
-      nextHead = 0;
+    auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
+    auto nextWriteIdx = writeIdx + 1;
+    if (nextWriteIdx == capacity_) {
+      nextWriteIdx = 0;
     }
-    while (nextHead == tail_.load(std::memory_order_acquire))
+    while (nextWriteIdx == readIdx_.load(std::memory_order_acquire))
       ;
-    new (&slots_[head + kPadding]) T(std::forward<Args>(args)...);
-    head_.store(nextHead, std::memory_order_release);
+    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    writeIdx_.store(nextWriteIdx, std::memory_order_release);
   }
 
   template <typename... Args>
@@ -113,16 +113,16 @@ public:
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
-    auto const head = head_.load(std::memory_order_relaxed);
-    auto nextHead = head + 1;
-    if (nextHead == capacity_) {
-      nextHead = 0;
+    auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
+    auto nextWriteIdx = writeIdx + 1;
+    if (nextWriteIdx == capacity_) {
+      nextWriteIdx = 0;
     }
-    if (nextHead == tail_.load(std::memory_order_acquire)) {
+    if (nextWriteIdx == readIdx_.load(std::memory_order_acquire)) {
       return false;
     }
-    new (&slots_[head + kPadding]) T(std::forward<Args>(args)...);
-    head_.store(nextHead, std::memory_order_release);
+    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    writeIdx_.store(nextWriteIdx, std::memory_order_release);
     return true;
   }
 
@@ -152,29 +152,29 @@ public:
   }
 
   T *front() noexcept {
-    auto const tail = tail_.load(std::memory_order_relaxed);
-    if (head_.load(std::memory_order_acquire) == tail) {
+    auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    if (writeIdx_.load(std::memory_order_acquire) == readIdx) {
       return nullptr;
     }
-    return &slots_[tail + kPadding];
+    return &slots_[readIdx + kPadding];
   }
 
   void pop() noexcept {
     static_assert(std::is_nothrow_destructible<T>::value,
                   "T must be nothrow destructible");
-    auto const tail = tail_.load(std::memory_order_relaxed);
-    assert(head_.load(std::memory_order_acquire) != tail);
-    slots_[tail + kPadding].~T();
-    auto nextTail = tail + 1;
-    if (nextTail == capacity_) {
-      nextTail = 0;
+    auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    assert(writeIdx_.load(std::memory_order_acquire) != readIdx);
+    slots_[readIdx + kPadding].~T();
+    auto nextReadIdx = readIdx + 1;
+    if (nextReadIdx == capacity_) {
+      nextReadIdx = 0;
     }
-    tail_.store(nextTail, std::memory_order_release);
+    readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
   size_t size() const noexcept {
-    std::ptrdiff_t diff = head_.load(std::memory_order_acquire) -
-                          tail_.load(std::memory_order_acquire);
+    std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
+                          readIdx_.load(std::memory_order_acquire);
     if (diff < 0) {
       diff += capacity_;
     }
@@ -205,11 +205,11 @@ private:
   Allocator allocator_;
 #endif
 
-  // Align to avoid false sharing between head_ and tail_
-  alignas(kCacheLineSize) std::atomic<size_t> head_;
-  alignas(kCacheLineSize) std::atomic<size_t> tail_;
+  // Align to avoid false sharing between writeIdx_ and readIdx_
+  alignas(kCacheLineSize) std::atomic<size_t> writeIdx_;
+  alignas(kCacheLineSize) std::atomic<size_t> readIdx_;
 
-  // Padding to avoid adjacent allocations to share cache line with tail_
-  char padding_[kCacheLineSize - sizeof(tail_)];
+  // Padding to avoid adjacent allocations to share cache line with readIdx_
+  char padding_[kCacheLineSize - sizeof(readIdx_)];
 };
 } // namespace rigtorp
