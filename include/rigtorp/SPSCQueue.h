@@ -30,6 +30,15 @@ SOFTWARE.
 #include <stdexcept>
 #include <type_traits> // std::enable_if, std::is_*_constructible
 
+#ifdef __has_cpp_attribute
+#if __has_cpp_attribute(nodiscard)
+#define RIGTORP_NODISCARD [[nodiscard]]
+#endif
+#endif
+#ifndef RIGTORP_NODISCARD
+#define RIGTORP_NODISCARD
+#endif
+
 namespace rigtorp {
 
 template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
@@ -110,7 +119,7 @@ public:
   }
 
   template <typename... Args>
-  bool try_emplace(Args &&...args) noexcept(
+  RIGTORP_NODISCARD bool try_emplace(Args &&...args) noexcept(
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
@@ -142,7 +151,7 @@ public:
     emplace(std::forward<P>(v));
   }
 
-  bool
+  RIGTORP_NODISCARD bool
   try_push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
     static_assert(std::is_copy_constructible<T>::value,
                   "T must be copy constructible");
@@ -151,11 +160,12 @@ public:
 
   template <typename P, typename = typename std::enable_if<
                             std::is_constructible<T, P &&>::value>::type>
-  bool try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
+  RIGTORP_NODISCARD bool
+  try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
     return try_emplace(std::forward<P>(v));
   }
 
-  T *front() noexcept {
+  RIGTORP_NODISCARD T *front() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     if (readIdx == writeIdxCache_) {
       writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
@@ -179,7 +189,7 @@ public:
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
-  size_t size() const noexcept {
+  RIGTORP_NODISCARD size_t size() const noexcept {
     std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
                           readIdx_.load(std::memory_order_acquire);
     if (diff < 0) {
@@ -188,12 +198,12 @@ public:
     return static_cast<size_t>(diff);
   }
 
-  bool empty() const noexcept {
+  RIGTORP_NODISCARD bool empty() const noexcept {
     return writeIdx_.load(std::memory_order_acquire) ==
            readIdx_.load(std::memory_order_acquire);
   }
 
-  size_t capacity() const noexcept { return capacity_ - 1; }
+  RIGTORP_NODISCARD size_t capacity() const noexcept { return capacity_ - 1; }
 
 private:
 #ifdef __cpp_lib_hardware_interference_size
