@@ -67,8 +67,16 @@ See `src/SPSCQueueExample.cpp` for the full example.
 
 - `pop();`
 
-  Dequeue first elment of queue. Invalid to call if queue is
+  Dequeue first item of queue. Invalid to call if queue is
   empty. Requires `std::is_nothrow_destructible<T>::value == true`.
+
+- `size();`
+
+  Return the number of items available in the queue.
+
+- `empty();`
+
+  Return true if queue is currently empty.
 
 Only a single writer thread can perform enqueue operations and only a
 single reader thread can perform dequeue operations. Any other usage
@@ -174,18 +182,18 @@ Testing lock-free algorithms is hard. I'm using two approaches to test
 the implementation:
 
 - A single threaded test that the functionality works as intended,
-  including that the element constructor and destructor is invoked
+  including that the item constructor and destructor is invoked
   correctly.
-- A multi-threaded fuzz test that all elements are enqueued and
-  dequeued correctly under heavy contention.
+- A multi-threaded fuzz test verifies that all items are enqueued and dequeued
+  correctly under heavy contention.
 
 ## Benchmarks
 
 Throughput benchmark measures throughput between 2 threads for a queue of `int`
-elements.
+items.
 
 Latency benchmark measures round trip time between 2 threads communicating using
-2 queues of `int` elements.
+2 queues of `int` items.
 
 Benchmark results for a AMD Ryzen 9 3900X 12-Core Processor, the 2 threads are
 running on different cores on the same chiplet:
