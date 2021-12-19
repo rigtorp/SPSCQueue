@@ -65,16 +65,16 @@ See `src/SPSCQueueExample.cpp` for the full example.
   Return pointer to front of queue. Returns `nullptr` if queue is
   empty.
 
-- `pop();`
+- `void pop();`
 
   Dequeue first item of queue. Invalid to call if queue is
   empty. Requires `std::is_nothrow_destructible<T>::value == true`.
 
-- `size();`
+- `size_t size();`
 
   Return the number of items available in the queue.
 
-- `empty();`
+- `bool empty();`
 
   Return true if queue is currently empty.
 
