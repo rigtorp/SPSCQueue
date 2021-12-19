@@ -42,7 +42,7 @@ See `src/SPSCQueueExample.cpp` for the full example.
 - `void push(const T &v);`
 
   Enqueue an item using copy construction. Blocks if queue is full.
-  
+
 - `template <typename P> void push(P &&v);`
 
   Enqueue an item using move construction. Participates in overload
@@ -53,8 +53,8 @@ See `src/SPSCQueueExample.cpp` for the full example.
 
   Try to enqueue an item using copy construction. Returns `true` on
   success and `false` if queue is full.
-  
-- `template <typename P> void try_push(P &&v);`
+
+- `template <typename P> bool try_push(P &&v);`
 
   Try to enqueue an item using move construction. Returns `true` on
   success and `false` if queue is full. Participates in overload
