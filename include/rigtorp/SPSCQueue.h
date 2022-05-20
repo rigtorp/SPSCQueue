@@ -114,7 +114,8 @@ public:
     while (nextWriteIdx == readIdxCache_) {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
     }
-    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    std::allocator_traits<Allocator>::construct(
+      allocator_, &slots_[writeIdx + kPadding], std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
   }
 
@@ -134,7 +135,8 @@ public:
         return false;
       }
     }
-    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    std::allocator_traits<Allocator>::construct(
+      allocator_, &slots_[writeIdx + kPadding], std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
     return true;
   }
@@ -181,7 +183,8 @@ public:
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     assert(writeIdx_.load(std::memory_order_acquire) != readIdx);
-    slots_[readIdx + kPadding].~T();
+    std::allocator_traits<Allocator>::destroy(
+      allocator_, &slots_[readIdx + kPadding]);
     auto nextReadIdx = readIdx + 1;
     if (nextReadIdx == capacity_) {
       nextReadIdx = 0;
