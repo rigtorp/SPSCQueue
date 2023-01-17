@@ -186,6 +186,17 @@ public:
     if (nextReadIdx == capacity_) {
       nextReadIdx = 0;
     }
+    // bug fix: don't allow writeIdxCache_ to fall behind readIdx_
+    //
+    // Without this fix, the assertion in the example below will fail:
+    //
+    // SPSCQueue<int> q(16);
+    // q.emplace(0);
+    // q.pop();
+    // assert(q.front() == nullptr);
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = nextReadIdx;
+    }
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
