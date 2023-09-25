@@ -180,7 +180,8 @@ public:
     static_assert(std::is_nothrow_destructible<T>::value,
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
-    assert(writeIdx_.load(std::memory_order_acquire) != readIdx);
+    assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
+           "Can only call pop() after front() has returned a non-nullptr");
     slots_[readIdx + kPadding].~T();
     auto nextReadIdx = readIdx + 1;
     if (nextReadIdx == capacity_) {

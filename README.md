@@ -67,8 +67,10 @@ See `src/SPSCQueueExample.cpp` for the full example.
 
 - `void pop();`
 
-  Dequeue first item of queue. Invalid to call if queue is
-  empty. Requires `std::is_nothrow_destructible<T>::value == true`.
+  Dequeue first item of queue. You must ensure that the queue is non-empty
+  before calling pop. This means that `front()` must have returned a
+  non-`nullptr` before each call to `pop()`. Requires
+  `std::is_nothrow_destructible<T>::value == true`.
 
 - `size_t size();`
 
