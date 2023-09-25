@@ -233,9 +233,5 @@ private:
   alignas(kCacheLineSize) size_t readIdxCache_ = 0;
   alignas(kCacheLineSize) std::atomic<size_t> readIdx_ = {0};
   alignas(kCacheLineSize) size_t writeIdxCache_ = 0;
-
-  // Padding to avoid adjacent allocations to share cache line with
-  // writeIdxCache_
-  char padding_[kCacheLineSize - sizeof(writeIdxCache_)];
 };
 } // namespace rigtorp
