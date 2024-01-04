@@ -7,12 +7,12 @@ add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
 
-target_include_directories(${PROJECT_NAME} INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
+set(SYSTEM_TAG "SYSTEM")
 
 # Tests and examples
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+	set(SYSTEM_TAG "")
+
     if(MSVC)
         add_compile_options(/permissive- /W4)
     else()
@@ -43,6 +43,11 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     enable_testing()
     add_test(SPSCQueueTest SPSCQueueTest)
 endif()
+
+target_include_directories(${PROJECT_NAME} ${SYSTEM_TAG} INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>)
+
 
 # Install
 include(GNUInstallDirs)
