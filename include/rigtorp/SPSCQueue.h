@@ -90,9 +90,8 @@ public:
   }
 
   ~SPSCQueue() {
-    while (front()) {
-      pop();
-    }
+    while (try_pop())
+      ;
     std::allocator_traits<Allocator>::deallocate(allocator_, slots_,
                                                  capacity_ + 2 * kPadding);
   }
