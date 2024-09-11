@@ -192,6 +192,25 @@ public:
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
+  RIGTORP_NODISCARD bool try_pop() noexcept {
+    static_assert(std::is_nothrow_destructible<T>::value,
+                  "T must be nothrow destructible");
+    auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
+      if (writeIdxCache_ == readIdx) {
+        return false;
+      }
+    }
+    slots_[readIdx + kPadding].~T();
+    auto nextReadIdx = readIdx + 1;
+    if (nextReadIdx == capacity_) {
+      nextReadIdx = 0;
+    }
+    readIdx_.store(nextReadIdx, std::memory_order_release);
+    return true;
+  }
+
   RIGTORP_NODISCARD size_t size() const noexcept {
     std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
                           readIdx_.load(std::memory_order_acquire);
