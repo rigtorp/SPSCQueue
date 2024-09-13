@@ -33,6 +33,10 @@ SOFTWARE.
 #include <folly/ProducerConsumerQueue.h>
 #endif
 
+#if __has_include(<readerwriterqueue/readerwritercircularbuffer.h>)
+#include <readerwriterqueue/readerwritercircularbuffer.h>
+#endif
+
 void pinThread(int cpu) {
   if (cpu < 0) {
     return;
@@ -243,6 +247,73 @@ int main(int argc, char *argv[]) {
       int val;
       while (!q2.read(val))
         ;
+    }
+    auto stop = std::chrono::steady_clock::now();
+    t.join();
+    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                      start)
+                         .count() /
+                     iters
+              << " ns RTT" << std::endl;
+  }
+#endif
+
+#if __has_include(<readerwriterqueue/readerwritercircularbuffer.h>)
+  std::cout << "moodycamel::BlockingReaderWriterCircularBuffer" << std::endl;
+
+  {
+    moodycamel::BlockingReaderWriterCircularBuffer<int> q(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        while (!q.peek())
+          ;
+        if (*q.peek() != i) {
+          throw std::runtime_error("");
+        }
+        int val{};
+        q.wait_dequeue(val);
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      q.wait_enqueue(i);
+    }
+    t.join();
+    auto stop = std::chrono::steady_clock::now();
+    std::cout << iters * 1000000 /
+                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
+                                                                          start)
+                         .count()
+              << " ops/ms" << std::endl;
+  }
+
+  {
+    moodycamel::BlockingReaderWriterCircularBuffer<int> q1(queueSize),
+        q2(queueSize);
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int i = 0; i < iters; ++i) {
+        while (!q1.peek())
+          ;
+        q2.wait_enqueue(*q1.peek());
+        int val{};
+        q1.wait_dequeue(val);
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iters; ++i) {
+      q1.wait_enqueue(i);
+      while (!q2.peek())
+        ;
+      int val{};
+      q2.wait_dequeue(val);
     }
     auto stop = std::chrono::steady_clock::now();
     t.join();
