@@ -7,7 +7,7 @@ A single producer single consumer wait-free and lock-free fixed size queue
 written in C++11. This implementation is faster than both
 [*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html),
 [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md),
-and [*moodycamel::BlockingReaderWriterCircularBuffer*](https://github.com/cameron314/readerwriterqueue/tree/master).
+and [*moodycamel::ReaderWriterQueue*](https://github.com/cameron314/readerwriterqueue/tree/master).
 
 ## Example
 
@@ -204,9 +204,9 @@ running on different cores on the same chiplet:
 | Queue                                          | Throughput (ops/ms) | Latency RTT (ns) |
 | --------------------------------------------   | ------------------: | ---------------: |
 | SPSCQueue                                      |              362723 |              133 |
+| moodycamel::ReaderWriterQueue                  |              326868 |              137 |
 | boost::lockfree::spsc                          |              209877 |              222 |
 | folly::ProducerConsumerQueue                   |              148818 |              147 |
-| moodycamel::BlockingReaderWriterCircularBuffer |                 -   |               -  |
 
 ## Cited by
 
