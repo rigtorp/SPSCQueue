@@ -90,9 +90,8 @@ public:
   }
 
   ~SPSCQueue() {
-    while (front()) {
-      pop();
-    }
+    while (try_pop())
+      ;
     std::allocator_traits<Allocator>::deallocate(allocator_, slots_,
                                                  capacity_ + 2 * kPadding);
   }
@@ -180,6 +179,8 @@ public:
     static_assert(std::is_nothrow_destructible<T>::value,
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    // This assert will cause cache contention
+    // set NDEBUG macro to disable for production
     assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
            "Can only call pop() after front() has returned a non-nullptr");
     slots_[readIdx + kPadding].~T();
@@ -188,6 +189,25 @@ public:
       nextReadIdx = 0;
     }
     readIdx_.store(nextReadIdx, std::memory_order_release);
+  }
+
+  RIGTORP_NODISCARD bool try_pop() noexcept {
+    static_assert(std::is_nothrow_destructible<T>::value,
+                  "T must be nothrow destructible");
+    auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
+      if (writeIdxCache_ == readIdx) {
+        return false;
+      }
+    }
+    slots_[readIdx + kPadding].~T();
+    auto nextReadIdx = readIdx + 1;
+    if (nextReadIdx == capacity_) {
+      nextReadIdx = 0;
+    }
+    readIdx_.store(nextReadIdx, std::memory_order_release);
+    return true;
   }
 
   RIGTORP_NODISCARD size_t size() const noexcept {
