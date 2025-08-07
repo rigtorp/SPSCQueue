@@ -22,12 +22,12 @@ SOFTWARE.
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <memory> // std::allocator
 #include <new>    // std::hardware_destructive_interference_size
-#include <stdexcept>
 #include <type_traits> // std::enable_if, std::is_*_constructible
 
 #ifdef __has_cpp_attribute
@@ -58,15 +58,8 @@ public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
       : capacity_(capacity), allocator_(allocator) {
-    // The queue needs at least one element
-    if (capacity_ < 1) {
-      capacity_ = 1;
-    }
-    capacity_++; // Needs one slack element
-    // Prevent overflowing size_t
-    if (capacity_ > SIZE_MAX - 2 * kPadding) {
-      capacity_ = SIZE_MAX - 2 * kPadding;
-    }
+    // The queue needs at least one element plus one slack
+    capacity_ = std::min(std::max(capacity_ + 1, 2ul), SIZE_MAX - 2 * kPadding);
 
 #if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
     if constexpr (has_allocate_at_least<Allocator>::value) {
@@ -107,10 +100,7 @@ public:
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
-    auto nextWriteIdx = writeIdx + 1;
-    if (nextWriteIdx == capacity_) {
-      nextWriteIdx = 0;
-    }
+    auto nextWriteIdx = (writeIdx + 1) % capacity_;
     while (nextWriteIdx == readIdxCache_) {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
     }
@@ -124,10 +114,7 @@ public:
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
-    auto nextWriteIdx = writeIdx + 1;
-    if (nextWriteIdx == capacity_) {
-      nextWriteIdx = 0;
-    }
+    auto nextWriteIdx = (writeIdx + 1) % capacity_;
     if (nextWriteIdx == readIdxCache_) {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
       if (nextWriteIdx == readIdxCache_) {
@@ -180,13 +167,12 @@ public:
     static_assert(std::is_nothrow_destructible<T>::value,
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
-    assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
-           "Can only call pop() after front() has returned a non-nullptr");
-    slots_[readIdx + kPadding].~T();
-    auto nextReadIdx = readIdx + 1;
-    if (nextReadIdx == capacity_) {
-      nextReadIdx = 0;
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
     }
+    assert(writeIdxCache_ != readIdx && "Can only call pop() after front() has returned a non-nullptr");
+    slots_[readIdx + kPadding].~T();
+    auto nextReadIdx = (readIdx + 1) % capacity_;
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
