@@ -30,6 +30,9 @@ See `src/SPSCQueueExample.cpp` for the full example.
   Create a `SPSCqueue` holding items of type `T` with capacity
   `capacity`. Capacity needs to be at least 1.
 
+  Throws `std::length_error` if the capacity, slack element and padding
+  cannot be represented by `size_t`.
+
 - `void emplace(Args &&... args);`
 
   Enqueue an item using inplace construction. Blocks if queue is full.
