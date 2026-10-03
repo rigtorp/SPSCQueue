@@ -181,6 +181,16 @@ int main(int argc, char *argv[]) {
     assert(throws);
   }
 
+  {
+    bool throws = false;
+    try{
+      SPSCQueue<int> q(SIZE_MAX);
+    } catch(...) {
+      throws = true;
+    }
+    assert(throws);
+  }
+
   // Fuzz and performance test
   {
     const size_t iter = 100000;
