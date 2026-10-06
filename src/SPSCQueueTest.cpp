@@ -64,10 +64,78 @@ struct TestType {
 
 std::set<const TestType *> TestType::constructed;
 
+// Record allocation requests without attempting enormous real allocations.
+template <typename T> struct RecordingAllocator {
+  using value_type = T;
+  size_t *requested;
+
+  T *allocate(size_t n) {
+    *requested = n;
+    throw std::bad_alloc();
+  }
+
+  void deallocate(T *, size_t) {}
+};
+
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+template <typename T>
+struct RecordingAtLeastAllocator : RecordingAllocator<T> {
+  struct AllocationResult {
+    T *ptr;
+    size_t count;
+  };
+
+  AllocationResult allocate_at_least(size_t n) {
+    return {this->allocate(n), n};
+  }
+};
+#endif
+
+template <typename Allocator> void testCapacityOverflow() {
+  // char elements require one cache line's worth of padding at each end.
+  const size_t padding = alignof(rigtorp::SPSCQueue<char>);
+  const size_t maxCapacity = SIZE_MAX - 2 * padding - 1;
+  size_t requested = 0;
+  Allocator allocator;
+  allocator.requested = &requested;
+
+  // Oversized capacities are clamped before adding slack and padding.
+  for (size_t capacity : {maxCapacity + 1, SIZE_MAX - 1, SIZE_MAX}) {
+    requested = 0;
+    bool throws = false;
+    try {
+      rigtorp::SPSCQueue<char, Allocator> q(capacity, allocator);
+    } catch (const std::bad_alloc &) {
+      throws = true;
+    }
+    assert(throws);
+    assert(requested == SIZE_MAX);
+  }
+
+  // Requests that fit must reach the allocator unchanged, including the
+  // largest representable allocation and zero's minimum-capacity adjustment.
+  for (size_t capacity : {size_t(0), size_t(1), maxCapacity - 1, maxCapacity}) {
+    requested = 0;
+    bool throws = false;
+    try {
+      rigtorp::SPSCQueue<char, Allocator> q(capacity, allocator);
+    } catch (const std::bad_alloc &) {
+      throws = true;
+    }
+    assert(throws);
+    assert(requested == (capacity == 0 ? 1 : capacity) + 1 + 2 * padding);
+  }
+}
+
 int main(int argc, char *argv[]) {
   (void)argc, (void)argv;
 
   using namespace rigtorp;
+
+  testCapacityOverflow<RecordingAllocator<char>>();
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+  testCapacityOverflow<RecordingAtLeastAllocator<char>>();
+#endif
 
   // Functionality test
   {
@@ -168,6 +236,20 @@ int main(int argc, char *argv[]) {
   {
     SPSCQueue<int> q(0);
     assert(q.capacity() == 1);
+  }
+
+  // Minimum capacity still supports repeated full/empty transitions.
+  for (size_t capacity : {size_t(0), size_t(1)}) {
+    SPSCQueue<int> q(capacity);
+    for (int value = 0; value < 10; ++value) {
+      assert(q.empty());
+      assert(q.try_push(value));
+      assert(!q.try_push(value + 1));
+      assert(q.size() == 1);
+      assert(*q.front() == value);
+      q.pop();
+      assert(q.front() == nullptr);
+    }
   }
 
   // Check that padding doesn't overflow capacity
