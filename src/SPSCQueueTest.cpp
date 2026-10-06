@@ -99,15 +99,17 @@ template <typename Allocator> void testCapacityOverflow() {
   Allocator allocator;
   allocator.requested = &requested;
 
+  // Oversized capacities are clamped before adding slack and padding.
   for (size_t capacity : {maxCapacity + 1, SIZE_MAX - 1, SIZE_MAX}) {
+    requested = 0;
     bool throws = false;
     try {
       rigtorp::SPSCQueue<char, Allocator> q(capacity, allocator);
-    } catch (const std::length_error &) {
+    } catch (const std::bad_alloc &) {
       throws = true;
     }
     assert(throws);
-    assert(requested == 0);
+    assert(requested == SIZE_MAX);
   }
 
   // Requests that fit must reach the allocator unchanged, including the
@@ -256,6 +258,16 @@ int main(int argc, char *argv[]) {
     try {
       SPSCQueue<int> q(SIZE_MAX - 1);
     } catch (...) {
+      throws = true;
+    }
+    assert(throws);
+  }
+
+  {
+    bool throws = false;
+    try{
+      SPSCQueue<int> q(SIZE_MAX);
+    } catch(...) {
       throws = true;
     }
     assert(throws);

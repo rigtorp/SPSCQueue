@@ -62,9 +62,9 @@ public:
     if (capacity_ < 1) {
       capacity_ = 1;
     }
-    // Check before adding the slack element and padding to avoid overflow.
+    // Prevent overflowing size_t
     if (capacity_ > SIZE_MAX - 2 * kPadding - 1) {
-      throw std::length_error("SPSCQueue capacity is too large");
+      capacity_ = SIZE_MAX - 2 * kPadding - 1;
     }
     capacity_++; // Needs one slack element
 
