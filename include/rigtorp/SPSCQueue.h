@@ -28,7 +28,7 @@ SOFTWARE.
 #include <memory> // std::allocator
 #include <new>    // std::hardware_destructive_interference_size
 #include <stdexcept>
-#include <type_traits> // std::enable_if, std::is_*_constructible
+#include <type_traits> // std::is_*_constructible_v
 
 #ifdef __has_cpp_attribute
 #if __has_cpp_attribute(nodiscard)
@@ -39,11 +39,30 @@ SOFTWARE.
 #define RIGTORP_NODISCARD
 #endif
 
+// C++20 feature detection macros
+#if __cplusplus >= 202002L
+#define RIGTORP_HAS_CONCEPTS 1
+#define RIGTORP_LIKELY [[likely]]
+#define RIGTORP_UNLIKELY [[unlikely]]
+#else
+#define RIGTORP_HAS_CONCEPTS 0
+#define RIGTORP_LIKELY
+#define RIGTORP_UNLIKELY
+#endif
+
 namespace rigtorp {
+
+#if RIGTORP_HAS_CONCEPTS
+// C++20 Concepts for allocator validation
+template <typename Alloc>
+concept HasAllocateAtLeast = requires(Alloc a, size_t n) {
+  { a.allocate_at_least(n) };
+};
+#endif
 
 template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
 
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+#if !RIGTORP_HAS_CONCEPTS && defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
   template <typename Alloc2, typename = void>
   struct has_allocate_at_least : std::false_type {};
 
@@ -68,7 +87,16 @@ public:
     }
     capacity_++; // Needs one slack element
 
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+#if RIGTORP_HAS_CONCEPTS
+    if constexpr (HasAllocateAtLeast<Allocator>) {
+      auto res = allocator_.allocate_at_least(capacity_ + 2 * kPadding);
+      slots_ = res.ptr;
+      capacity_ = res.count - 2 * kPadding;
+    } else {
+      slots_ = std::allocator_traits<Allocator>::allocate(
+          allocator_, capacity_ + 2 * kPadding);
+    }
+#elif defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
     if constexpr (has_allocate_at_least<Allocator>::value) {
       auto res = allocator_.allocate_at_least(capacity_ + 2 * kPadding);
       slots_ = res.ptr;
@@ -103,15 +131,15 @@ public:
 
   template <typename... Args>
   void emplace(Args &&...args) noexcept(
-      std::is_nothrow_constructible<T, Args &&...>::value) {
-    static_assert(std::is_constructible<T, Args &&...>::value,
+      std::is_nothrow_constructible_v<T, Args &&...>) {
+    static_assert(std::is_constructible_v<T, Args &&...>,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
     auto nextWriteIdx = writeIdx + 1;
     if (nextWriteIdx == capacity_) {
       nextWriteIdx = 0;
     }
-    while (nextWriteIdx == readIdxCache_) {
+    while (nextWriteIdx == readIdxCache_) RIGTORP_UNLIKELY {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
     }
     new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
@@ -120,17 +148,17 @@ public:
 
   template <typename... Args>
   RIGTORP_NODISCARD bool try_emplace(Args &&...args) noexcept(
-      std::is_nothrow_constructible<T, Args &&...>::value) {
-    static_assert(std::is_constructible<T, Args &&...>::value,
+      std::is_nothrow_constructible_v<T, Args &&...>) {
+    static_assert(std::is_constructible_v<T, Args &&...>,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
     auto nextWriteIdx = writeIdx + 1;
     if (nextWriteIdx == capacity_) {
       nextWriteIdx = 0;
     }
-    if (nextWriteIdx == readIdxCache_) {
+    if (nextWriteIdx == readIdxCache_) RIGTORP_UNLIKELY {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
-      if (nextWriteIdx == readIdxCache_) {
+      if (nextWriteIdx == readIdxCache_) RIGTORP_UNLIKELY {
         return false;
       }
     }
@@ -139,37 +167,54 @@ public:
     return true;
   }
 
-  void push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
-    static_assert(std::is_copy_constructible<T>::value,
+  void push(const T &v) noexcept(std::is_nothrow_copy_constructible_v<T>) {
+    static_assert(std::is_copy_constructible_v<T>,
                   "T must be copy constructible");
     emplace(v);
   }
 
-  template <typename P, typename = typename std::enable_if<
-                            std::is_constructible<T, P &&>::value>::type>
-  void push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
+#if RIGTORP_HAS_CONCEPTS
+  template <typename P>
+    requires std::is_constructible_v<T, P &&>
+  void push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
     emplace(std::forward<P>(v));
   }
+#else
+  template <typename P, typename = typename std::enable_if<
+                            std::is_constructible_v<T, P &&>>::type>
+  void push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
+    emplace(std::forward<P>(v));
+  }
+#endif
 
   RIGTORP_NODISCARD bool
-  try_push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
-    static_assert(std::is_copy_constructible<T>::value,
+  try_push(const T &v) noexcept(std::is_nothrow_copy_constructible_v<T>) {
+    static_assert(std::is_copy_constructible_v<T>,
                   "T must be copy constructible");
     return try_emplace(v);
   }
 
-  template <typename P, typename = typename std::enable_if<
-                            std::is_constructible<T, P &&>::value>::type>
+#if RIGTORP_HAS_CONCEPTS
+  template <typename P>
+    requires std::is_constructible_v<T, P &&>
   RIGTORP_NODISCARD bool
-  try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
+  try_push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
     return try_emplace(std::forward<P>(v));
   }
+#else
+  template <typename P, typename = typename std::enable_if<
+                            std::is_constructible_v<T, P &&>>::type>
+  RIGTORP_NODISCARD bool
+  try_push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
+    return try_emplace(std::forward<P>(v));
+  }
+#endif
 
   RIGTORP_NODISCARD T *front() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
-    if (readIdx == writeIdxCache_) {
+    if (readIdx == writeIdxCache_) RIGTORP_UNLIKELY {
       writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
-      if (writeIdxCache_ == readIdx) {
+      if (writeIdxCache_ == readIdx) RIGTORP_UNLIKELY {
         return nullptr;
       }
     }
@@ -177,7 +222,7 @@ public:
   }
 
   void pop() noexcept {
-    static_assert(std::is_nothrow_destructible<T>::value,
+    static_assert(std::is_nothrow_destructible_v<T>,
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
@@ -208,8 +253,11 @@ public:
 
 private:
 #ifdef __cpp_lib_hardware_interference_size
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winterference-size"
   static constexpr size_t kCacheLineSize =
       std::hardware_destructive_interference_size;
+#pragma GCC diagnostic pop
 #else
   static constexpr size_t kCacheLineSize = 64;
 #endif

@@ -5,7 +5,7 @@ project(SPSCQueue VERSION 1.1 LANGUAGES CXX)
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
-target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
 
 target_include_directories(${PROJECT_NAME} INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -36,6 +36,10 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
 
     add_executable(SPSCQueueExample src/SPSCQueueExample.cpp)
     target_link_libraries(SPSCQueueExample SPSCQueue Threads::Threads)
+
+    add_executable(SPSCQueueExampleC++20 src/SPSCQueueExampleC++20.cpp)
+    target_link_libraries(SPSCQueueExampleC++20 SPSCQueue Threads::Threads)
+    target_compile_features(SPSCQueueExampleC++20 PRIVATE cxx_std_20)
 
     add_executable(SPSCQueueTest src/SPSCQueueTest.cpp)
     target_link_libraries(SPSCQueueTest SPSCQueue Threads::Threads)

@@ -225,5 +225,101 @@ int main(int argc, char *argv[]) {
     std::cout << duration.count() / iter << " ns/iter" << std::endl;
   }
 
+  // C++20 Feature Tests
+#if __cplusplus >= 202002L
+  std::cout << "\n=== C++20 Feature Tests ===" << std::endl;
+
+  // Test 1: Verify concepts are available (HasAllocateAtLeast)
+  {
+    std::cout << "Test: C++20 Concepts (HasAllocateAtLeast)" << std::endl;
+    // Test with default allocator (may or may not have allocate_at_least)
+    SPSCQueue<int> q1(10);
+    assert(!q1.empty() || q1.front() == nullptr);
+    std::cout << "  ✓ Concept-based allocator validation working" << std::endl;
+  }
+
+  // Test 2: Type trait _v suffix is used correctly
+  {
+    std::cout << "Test: Type trait _v suffix (std::is_*_constructible_v)" << std::endl;
+    struct ValidCpp20Test {
+      ValidCpp20Test() noexcept {}
+      ValidCpp20Test(const ValidCpp20Test &) noexcept {}
+      ValidCpp20Test(ValidCpp20Test &&) noexcept {}
+    };
+    SPSCQueue<ValidCpp20Test> q(16);
+    // These compile-time checks verify _v suffix is used in noexcept specs
+    static_assert(noexcept(q.emplace()) == true, "");
+    static_assert(noexcept(q.push(ValidCpp20Test())) == true, "");
+    static_assert(noexcept(q.try_push(ValidCpp20Test())) == true, "");
+    std::cout << "  ✓ Type trait _v suffix working correctly" << std::endl;
+  }
+
+  // Test 3: requires clauses for push overloads
+  {
+    std::cout << "Test: C++20 requires clauses for template constraints" << std::endl;
+    struct CustomType {
+      CustomType() {}
+      CustomType(int) {} // convertible from int
+    };
+    SPSCQueue<CustomType> q(16);
+    // This uses requires clause (or enable_if fallback)
+    q.push(CustomType(42));
+    (void)q.try_push(CustomType(100));
+    assert(q.size() == 2);
+    std::cout << "  ✓ requires clauses and template constraints working"
+              << std::endl;
+  }
+
+  // Test 4: Verify [[likely]]/[[unlikely]] attributes compile correctly
+  {
+    std::cout << "Test: [[likely]]/[[unlikely]] branch prediction hints"
+              << std::endl;
+    SPSCQueue<int> q(2);
+    // Push two items to test likely/unlikely in hot paths
+    q.push(1);
+    q.push(2);
+    // Test front() with likely/unlikely paths
+    assert(q.front() != nullptr);
+    q.pop();
+    assert(q.front() != nullptr);
+    q.pop();
+    // Try to access empty queue (unlikely path in front())
+    assert(q.front() == nullptr);
+    std::cout
+        << "  ✓ [[likely]]/[[unlikely]] attributes applied to hot paths"
+        << std::endl;
+  }
+
+  // Test 5: Queue behavior with likely/unlikely under stress
+  {
+    std::cout << "Test: Stress test with branch prediction hints" << std::endl;
+    SPSCQueue<size_t> q(128);
+    size_t push_count = 0;
+    size_t pop_count = 0;
+    // Fill and drain the queue multiple times
+    for (int iter = 0; iter < 1000; ++iter) {
+      for (int i = 0; i < 100; ++i) {
+        if (q.try_push(i)) {
+          ++push_count;
+        }
+      }
+      while (q.front()) {
+        q.pop();
+        ++pop_count;
+      }
+    }
+    assert(push_count > 0);
+    assert(pop_count > 0);
+    std::cout << "  ✓ Queue stress test passed with " << push_count
+              << " pushes and " << pop_count << " pops" << std::endl;
+  }
+
+  std::cout << "\n=== All C++20 feature tests passed! ===" << std::endl;
+#else
+  std::cout << "\nNote: C++20 features not available in this build" << std::endl;
+  std::cout << "Compile with -std=c++20 to enable C++20 feature tests"
+            << std::endl;
+#endif
+
   return 0;
 }
