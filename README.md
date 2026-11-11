@@ -132,7 +132,7 @@ pages on Linux.
 
 ## Implementation
 
-![Memory layout](https://github.com/rigtorp/SPSCQueue/blob/master/spsc.svg)
+![Memory layout](spsc.svg)
 
 The underlying implementation is based on a [ring
 buffer](https://en.wikipedia.org/wiki/Circular_buffer).
