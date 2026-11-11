@@ -164,9 +164,9 @@ int main(int argc, char *argv[]) {
 
   {
     bool throws = false;
-    try{
+    try {
       SPSCQueue<int> q(SIZE_MAX);
-    } catch(...) {
+    } catch (...) {
       throws = true;
     }
     assert(throws);

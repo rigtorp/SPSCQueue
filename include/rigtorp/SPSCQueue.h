@@ -1,23 +1,25 @@
 // SPDX-FileCopyrightText: 2020 Erik Rigtorp <erik@rigtorp.se>
 // SPDX-License-Identifier: MIT
 
-#pragma once
+#ifndef RIGTORP_SPSCQUEUE_H
+#define RIGTORP_SPSCQUEUE_H
 
 #include <atomic>
 #include <cassert>
 #include <cstddef>
-#include <memory> // std::allocator
-#include <new>    // std::hardware_destructive_interference_size
-#include <stdexcept>
+#include <cstdint>
+#include <memory>      // std::allocator
+#include <new>         // std::hardware_destructive_interference_size
 #include <type_traits> // std::enable_if, std::is_*_constructible
+#include <utility>     // std::declval, std::forward
 
 #ifdef __has_cpp_attribute
 #if __has_cpp_attribute(nodiscard)
-#define RIGTORP_NODISCARD [[nodiscard]]
+#define RIGTORP_SPSCQUEUE_NODISCARD [[nodiscard]]
 #endif
 #endif
-#ifndef RIGTORP_NODISCARD
-#define RIGTORP_NODISCARD
+#ifndef RIGTORP_SPSCQUEUE_NODISCARD
+#define RIGTORP_SPSCQUEUE_NODISCARD
 #endif
 
 namespace rigtorp {
@@ -100,7 +102,7 @@ public:
   }
 
   template <typename... Args>
-  RIGTORP_NODISCARD bool try_emplace(Args &&...args) noexcept(
+  RIGTORP_SPSCQUEUE_NODISCARD bool try_emplace(Args &&...args) noexcept(
       std::is_nothrow_constructible<T, Args &&...>::value) {
     static_assert(std::is_constructible<T, Args &&...>::value,
                   "T must be constructible with Args&&...");
@@ -132,7 +134,7 @@ public:
     emplace(std::forward<P>(v));
   }
 
-  RIGTORP_NODISCARD bool
+  RIGTORP_SPSCQUEUE_NODISCARD bool
   try_push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
     static_assert(std::is_copy_constructible<T>::value,
                   "T must be copy constructible");
@@ -141,12 +143,12 @@ public:
 
   template <typename P, typename = typename std::enable_if<
                             std::is_constructible<T, P &&>::value>::type>
-  RIGTORP_NODISCARD bool
+  RIGTORP_SPSCQUEUE_NODISCARD bool
   try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
     return try_emplace(std::forward<P>(v));
   }
 
-  RIGTORP_NODISCARD T *front() noexcept {
+  RIGTORP_SPSCQUEUE_NODISCARD T *front() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     if (readIdx == writeIdxCache_) {
       writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
@@ -171,7 +173,7 @@ public:
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
-  RIGTORP_NODISCARD size_t size() const noexcept {
+  RIGTORP_SPSCQUEUE_NODISCARD size_t size() const noexcept {
     std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
                           readIdx_.load(std::memory_order_acquire);
     if (diff < 0) {
@@ -180,12 +182,14 @@ public:
     return static_cast<size_t>(diff);
   }
 
-  RIGTORP_NODISCARD bool empty() const noexcept {
+  RIGTORP_SPSCQUEUE_NODISCARD bool empty() const noexcept {
     return writeIdx_.load(std::memory_order_acquire) ==
            readIdx_.load(std::memory_order_acquire);
   }
 
-  RIGTORP_NODISCARD size_t capacity() const noexcept { return capacity_ - 1; }
+  RIGTORP_SPSCQUEUE_NODISCARD size_t capacity() const noexcept {
+    return capacity_ - 1;
+  }
 
 private:
 #ifdef __cpp_lib_hardware_interference_size
@@ -216,3 +220,7 @@ private:
   alignas(kCacheLineSize) size_t writeIdxCache_ = 0;
 };
 } // namespace rigtorp
+
+#undef RIGTORP_SPSCQUEUE_NODISCARD
+
+#endif // RIGTORP_SPSCQUEUE_H
