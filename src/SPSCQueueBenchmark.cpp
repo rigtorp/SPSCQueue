@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iostream>
 #include <rigtorp/SPSCQueue.h>
+#include <stdexcept>
 #include <thread>
 
 #if __has_include(<boost/lockfree/spsc_queue.hpp> )
