@@ -1,155 +1,262 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="940" viewBox="0 0 1120 940"
+<svg xmlns="http://www.w3.org/2000/svg" width="1380" height="760" viewBox="0 0 1380 760"
      role="img" aria-labelledby="title description">
   <title id="title">SPSCQueue memory layout</title>
   <desc id="description">
-    The queue stores capacity, a slots pointer, and an allocator. Producer-owned
-    writeIdx and readIdxCache share an aligned region, separate from consumer-owned
-    readIdx and writeIdxCache. The slots pointer refers to a separate allocation
-    with padding before and after the elements. Each atomic index is written by
-    its owner and read by the other thread; cached indices are accessed only by
-    their owner. The producer constructs elements; the consumer reads and destroys
-    them. Ownership is indicated by text as well as color. One extra slot distinguishes full
-    from empty. An illustrative capacity-four queue has five slots, with readIdx
-    equal to one and writeIdx equal to three: slots one and two contain queued
-    elements. Labeled arrows identify the next element to consume and the next
-    slot to construct into. Available slots have dashed borders. Indices are
-    offsets into the ring, after the leading padding. This is a schematic,
-    not a byte-accurate layout.
+    Memory layout of SPSCQueue showing false-sharing ranges (kFalseSharingRange) and padding.
+    The SPSCQueue object contains five kFalseSharingRange-aligned blocks, each padded to
+    kFalseSharingRange: (1) metadata (capacity_, slots_, allocator_) plus padding,
+    (2) producer-written atomic writeIdx_ plus padding, (3) producer-private readIdxCache_
+    plus padding, (4) consumer-written atomic readIdx_ plus padding, and
+    (5) consumer-private writeIdxCache_ plus padding.
+    The slots_ pointer refers to a separate allocation containing kPadding leading
+    padding slots (spanning at least one kFalseSharingRange), capacity() + 1 ring buffer
+    slots of type T, and kPadding trailing padding slots (also spanning at least one
+    kFalseSharingRange) to avoid false sharing with adjacent allocations.
   </desc>
   <style>
     :root {
       color-scheme: light dark;
-      --fg: #1f2328;
-      --muted: #59636e;
-      --line: #657180;
-      --surface: #f6f8fa;
-      --padding: #eaeef2;
-      --producer: #ddf4ff;
-      --producer-line: #0969a1;
-      --consumer: #fff1df;
-      --consumer-line: #9a4d00;
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --fg: #e6edf3;
-        --muted: #a5afba;
-        --line: #8b98a7;
-        --surface: #161b22;
-        --padding: #252d38;
-        --producer: #102f46;
-        --producer-line: #79c0ff;
-        --consumer: #3b2818;
-        --consumer-line: #ffbf69;
-      }
-    }
-    text { fill: var(--fg); font: 18px system-ui, sans-serif; }
-    .heading { font-size: 26px; font-weight: 650; }
-    .section { font-size: 20px; font-weight: 600; }
-    .note { fill: var(--muted); font-size: 15px; }
+    text { fill: #1f2328; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif; font-size: 15px; }
+    .heading { font-size: 24px; font-weight: 700; }
+    .section { font-size: 17px; font-weight: 650; }
+    .note { fill: #59636e; font-size: 14px; }
+    .small { fill: #59636e; font-size: 12.5px; }
+    .dim-text { fill: #1f2328; font-size: 13.5px; font-weight: 600; text-anchor: middle; }
+    .dim-sub { fill: #59636e; font-family: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace; font-size: 12px; text-anchor: middle; }
     .label { text-anchor: middle; dominant-baseline: middle; }
-    .code { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 17px; }
-    .cell { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
-    .available { stroke-dasharray: 5 4; }
-    .pad { fill: url(#hatch); stroke: var(--line); stroke-width: 1.5; }
-    .producer { fill: var(--producer); stroke: var(--producer-line); stroke-width: 1.5; }
-    .consumer { fill: var(--consumer); stroke: var(--consumer-line); stroke-width: 1.5; }
-    .producer-text { fill: var(--producer-line); }
-    .consumer-text { fill: var(--consumer-line); }
-    .line { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .right { text-anchor: end; }
+    .left { text-anchor: start; }
+    .code { font-family: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace; font-size: 15px; font-weight: 600; }
+    .code-sm { font-family: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .code-xs { font-family: ui-monospace, "SFMono-Regular", "DejaVu Sans Mono", Consolas, monospace; font-size: 12px; font-weight: 600; }
+    .cell { fill: #f6f8fa; stroke: #657180; stroke-width: 1.5; }
+    .available { fill: #ffffff; stroke: #657180; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .pad-bg { fill: #eaeef2; }
+    .pad-hatch { stroke: #657180; stroke-width: 1.2; opacity: 0.45; }
+    .pad { fill: url(#hatch); stroke: #657180; stroke-width: 1.5; }
+    .producer { fill: #ddf4ff; stroke: #0969a1; stroke-width: 1.5; }
+    .consumer { fill: #fff1df; stroke: #9a4d00; stroke-width: 1.5; }
+    .producer-text { fill: #0969a1; }
+    .consumer-text { fill: #9a4d00; }
+    .line { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .producer-arrow { fill: none; stroke: #0969a1; stroke-width: 1.8; }
+    .consumer-arrow { fill: none; stroke: #9a4d00; stroke-width: 1.8; }
+    .arrow-head { fill: #59636e; }
+    .producer-head { fill: #0969a1; }
+    .consumer-head { fill: #9a4d00; }
+
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e6edf3; }
+      .note, .small, .dim-sub { fill: #9ea7b3; }
+      .dim-text { fill: #e6edf3; }
+      .cell { fill: #161b22; stroke: #8b98a7; }
+      .available { fill: #0d1117; stroke: #8b98a7; }
+      .pad-bg { fill: #21262d; }
+      .pad-hatch { stroke: #8b98a7; opacity: 0.45; }
+      .pad { stroke: #8b98a7; }
+      .producer { fill: #102f46; stroke: #79c0ff; }
+      .consumer { fill: #3b2818; stroke: #ffbf69; }
+      .producer-text { fill: #79c0ff; }
+      .consumer-text { fill: #ffbf69; }
+      .line { stroke: #8b98a7; }
+      .producer-arrow { stroke: #79c0ff; }
+      .consumer-arrow { stroke: #ffbf69; }
+      .arrow-head { fill: #8b98a7; }
+      .producer-head { fill: #79c0ff; }
+      .consumer-head { fill: #ffbf69; }
+    }
   </style>
+
   <defs>
     <pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse">
-      <rect width="10" height="10" fill="var(--padding)"/>
-      <path d="M-2 2 2-2 M0 10 10 0 M8 12 12 8" stroke="var(--line)" opacity="0.35"/>
+      <rect width="10" height="10" class="pad-bg"/>
+      <path d="M-2 2 2-2 M0 10 10 0 M8 12 12 8" class="pad-hatch"/>
     </pattern>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-      <path d="M0 0 10 5 0 10Z" fill="var(--line)"/>
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 10 5 0 9Z" class="arrow-head"/>
+    </marker>
+    <marker id="arrow-producer" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 10 5 0 9Z" class="producer-head"/>
+    </marker>
+    <marker id="arrow-consumer" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 10 5 0 9Z" class="consumer-head"/>
     </marker>
   </defs>
 
-  <text x="48" y="42" class="heading">SPSCQueue memory layout</text>
-  <text x="48" y="70" class="note">Schematic · field widths and padding are not to scale</text>
+  <!-- Title -->
+  <text x="40" y="38" class="heading">SPSCQueue memory layout</text>
+  <text x="40" y="62" class="note">Indices and cached indices are aligned and padded to the false sharing range (kFalseSharingRange); slots_ is padded at both ends.</text>
 
-  <!-- Metadata precedes the aligned indices; allocator size depends on its type. -->
-  <text x="48" y="112" class="section">Queue object</text>
-  <rect x="48" y="132" width="180" height="56" class="cell"/>
-  <rect x="228" y="132" width="180" height="56" class="cell"/>
-  <rect x="408" y="132" width="240" height="56" class="cell"/>
-  <text x="138" y="160" class="label code">capacity_</text>
-  <text x="318" y="160" class="label code">slots_</text>
-  <text x="528" y="160" class="label code">allocator_</text>
-  <text x="674" y="155" class="note">Allocator storage depends</text>
-  <text x="674" y="177" class="note">on its type and language mode.</text>
+  <!-- ===================================================================== -->
+  <!-- SECTION 1: Contiguous SPSCQueue<T> Object                             -->
+  <!-- ===================================================================== -->
+  <text x="40" y="100" class="section">Queue object (SPSCQueue&lt;T&gt;)</text>
 
-  <!-- Each index is aligned to kCacheLineSize; its owner's cache follows it. -->
-  <text x="48" y="242" class="section producer-text">Producer-owned · producer writes</text>
-  <text x="584" y="242" class="section consumer-text">Consumer-owned · consumer writes</text>
-  <path d="M48 266V254H536V266 M584 266V254H1072V266" class="line"/>
-  <rect x="48" y="274" width="170" height="100" class="producer"/>
-  <rect x="218" y="274" width="222" height="100" class="producer"/>
-  <rect x="440" y="274" width="96" height="100" class="pad"/>
-  <text x="133" y="296" class="label code">writeIdx_</text>
-  <text x="329" y="296" class="label code">readIdxCache_</text>
-  <text x="488" y="324" class="label note">Pad</text>
-  <rect x="584" y="274" width="170" height="100" class="consumer"/>
-  <rect x="754" y="274" width="222" height="100" class="consumer"/>
-  <rect x="976" y="274" width="96" height="100" class="pad"/>
-  <text x="669" y="296" class="label code">readIdx_</text>
-  <text x="865" y="296" class="label code">writeIdxCache_</text>
-  <text x="1024" y="324" class="label note">Pad</text>
-  <text x="133" y="323" class="label note">Atomic</text>
-  <text x="133" y="349" class="label note">Consumer reads</text>
-  <text x="329" y="323" class="label note">Thread-private cache</text>
-  <text x="329" y="349" class="label note">Producer only</text>
-  <text x="669" y="323" class="label note">Atomic</text>
-  <text x="669" y="349" class="label note">Producer reads</text>
-  <text x="865" y="323" class="label note">Thread-private cache</text>
-  <text x="865" y="349" class="label note">Consumer only</text>
-  <text x="48" y="404" class="note">Each thread caches the other index to reduce cross-thread atomic loads.</text>
-  <text x="560" y="438" class="label note">Indices start on separate false-sharing boundaries (kCacheLineSize).</text>
+  <!-- False sharing range dimension arrows above the 5 aligned 260px blocks -->
+  <!-- Tick marks at block boundaries: x = 40, 300, 560, 820, 1080, 1340 -->
+  <path d="M40 116V166 M300 116V166 M560 116V166 M820 116V166 M1080 116V166 M1340 116V166" class="line"/>
 
-  <!-- A snapshot of a capacity-four queue: ring indices run from zero to four. -->
-  <path d="M318 188V208H24V650H47" class="line" marker-end="url(#arrow)"/>
-  <text x="48" y="505" class="section">Element storage · separate allocation</text>
-  <text x="48" y="532" class="note">Example snapshot: capacity() = 4, five ring slots, two queued elements</text>
+  <path d="M44 150H296" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="170" y="128" class="dim-text">False sharing range</text>
+  <text x="170" y="143" class="dim-sub">kFalseSharingRange</text>
 
-  <!-- Index arrows are labels for offsets, not pointers or cached-index values. -->
-  <text x="416" y="559" class="label code consumer-text">readIdx_ = 1</text>
-  <text x="416" y="581" class="label note">Next to consume</text>
-  <path d="M416 592V615" class="line" marker-end="url(#arrow)"/>
-  <text x="704" y="559" class="label code producer-text">writeIdx_ = 3</text>
-  <text x="704" y="581" class="label note">Next to construct into</text>
-  <path d="M704 592V615" class="line" marker-end="url(#arrow)"/>
+  <path d="M304 150H556" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="430" y="128" class="dim-text">False sharing range</text>
+  <text x="430" y="143" class="dim-sub">alignas(kFalseSharingRange)</text>
 
-  <rect x="48" y="618" width="152" height="84" class="pad"/>
-  <!-- Inset available cells make their dashed borders visible on every side. -->
-  <rect x="204" y="622" width="136" height="76" class="cell available"/>
-  <rect x="344" y="618" width="144" height="84" class="cell"/>
-  <rect x="488" y="618" width="144" height="84" class="cell"/>
-  <rect x="636" y="622" width="136" height="76" class="cell available"/>
-  <rect x="780" y="622" width="136" height="76" class="cell available"/>
-  <rect x="920" y="618" width="152" height="84" class="pad"/>
-  <text x="124" y="660" class="label">Pad</text>
-  <text x="272" y="644" class="label code">slot 0</text>
-  <text x="272" y="677" class="label note">Available</text>
-  <text x="416" y="644" class="label code">T · slot 1</text>
-  <text x="416" y="677" class="label">Queued</text>
-  <text x="560" y="644" class="label code">T · slot 2</text>
-  <text x="560" y="677" class="label">Queued</text>
-  <text x="704" y="644" class="label code">slot 3</text>
-  <text x="704" y="677" class="label note">Available</text>
-  <text x="848" y="644" class="label code">slot 4</text>
-  <text x="848" y="677" class="label note">Available</text>
-  <text x="996" y="660" class="label">Pad</text>
-  <path d="M48 712V724H200V712 M200 712V724H920V712 M920 712V724H1072V712" class="line"/>
-  <text x="124" y="748" class="label note">kPadding elements</text>
-  <text x="560" y="748" class="label code">capacity() + 1 slots</text>
-  <text x="996" y="748" class="label note">kPadding elements</text>
-  <text x="560" y="786" class="label code">Element address = &amp;slots_[kPadding + index]</text>
-  <text x="560" y="816" class="label note">Indices wrap from 4 to 0 in this example; padding is outside the ring.</text>
-  <text x="560" y="843" class="label note">One slot must remain unused to distinguish full from empty; it is not a fixed slot.</text>
-  <text x="560" y="870" class="label note">Solid + “Queued” = constructed element; dashed + “Available” = no queued element.</text>
-  <text x="560" y="897" class="label note">Producer constructs/enqueues; consumer reads/destroys. Both read capacity_ and slots_.</text>
-  <text x="560" y="924" class="label note">Access labels describe enqueue/dequeue; size() and empty() read both atomic indices.</text>
+  <path d="M564 150H816" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="690" y="128" class="dim-text">False sharing range</text>
+  <text x="690" y="143" class="dim-sub">alignas(kFalseSharingRange)</text>
+
+  <path d="M824 150H1076" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="950" y="128" class="dim-text">False sharing range</text>
+  <text x="950" y="143" class="dim-sub">alignas(kFalseSharingRange)</text>
+
+  <path d="M1084 150H1336" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="1210" y="128" class="dim-text">False sharing range</text>
+  <text x="1210" y="143" class="dim-sub">alignas(kFalseSharingRange)</text>
+
+  <!-- Block 0 (x=40..300, width=260): capacity_ (78), slots_ (58), allocator_ (80), Pad (44) -->
+  <rect x="40" y="170" width="78" height="92" class="cell"/>
+  <rect x="118" y="170" width="58" height="92" class="cell"/>
+  <rect x="176" y="170" width="80" height="92" class="cell"/>
+  <rect x="256" y="170" width="44" height="92" class="pad"/>
+  <text x="79" y="206" class="label code-xs">capacity_</text>
+  <text x="79" y="228" class="label small">size_t</text>
+  <text x="147" y="206" class="label code-xs">slots_</text>
+  <text x="147" y="228" class="label small">T*</text>
+  <text x="216" y="206" class="label code-xs">allocator_</text>
+  <text x="216" y="228" class="label small">Allocator</text>
+  <text x="278" y="216" class="label note">Pad</text>
+
+  <!-- Block 1 (x=300..560, width=260): writeIdx_ (168) + Pad (92) -->
+  <rect x="300" y="170" width="168" height="92" class="producer"/>
+  <rect x="468" y="170" width="92" height="92" class="pad"/>
+  <text x="384" y="196" class="label code">writeIdx_</text>
+  <text x="384" y="218" class="label small producer-text">atomic · producer writes</text>
+  <text x="384" y="238" class="label small">consumer reads</text>
+  <text x="514" y="216" class="label note">Pad</text>
+
+  <!-- Block 2 (x=560..820, width=260): readIdxCache_ (168) + Pad (92) -->
+  <rect x="560" y="170" width="168" height="92" class="producer"/>
+  <rect x="728" y="170" width="92" height="92" class="pad"/>
+  <text x="644" y="196" class="label code">readIdxCache_</text>
+  <text x="644" y="218" class="label small producer-text">cached readIdx_</text>
+  <text x="644" y="238" class="label small">producer only</text>
+  <text x="774" y="216" class="label note">Pad</text>
+
+  <!-- Block 3 (x=820..1080, width=260): readIdx_ (168) + Pad (92) -->
+  <rect x="820" y="170" width="168" height="92" class="consumer"/>
+  <rect x="988" y="170" width="92" height="92" class="pad"/>
+  <text x="904" y="196" class="label code">readIdx_</text>
+  <text x="904" y="218" class="label small consumer-text">atomic · consumer writes</text>
+  <text x="904" y="238" class="label small">producer reads</text>
+  <text x="1034" y="216" class="label note">Pad</text>
+
+  <!-- Block 4 (x=1080..1340, width=260): writeIdxCache_ (168) + Pad (92) -->
+  <rect x="1080" y="170" width="168" height="92" class="consumer"/>
+  <rect x="1248" y="170" width="92" height="92" class="pad"/>
+  <text x="1164" y="196" class="label code">writeIdxCache_</text>
+  <text x="1164" y="218" class="label small consumer-text">cached writeIdx_</text>
+  <text x="1164" y="238" class="label small">consumer only</text>
+  <text x="1294" y="216" class="label note">Pad</text>
+
+  <!-- ===================================================================== -->
+  <!-- POINTER / INDEX ARROWS FROM QUEUE OBJECT TO ELEMENT STORAGE           -->
+  <!-- ===================================================================== -->
+  <!-- slots_ pointer to start of allocation (x=105, y=446) -->
+  <path d="M147 262 C147 305, 105 310, 105 360 V442" class="line" marker-end="url(#arrow)"/>
+  <text x="122" y="344" class="left code-sm">slots_</text>
+  <text x="122" y="362" class="left small">allocation start (&amp;slots_[0])</text>
+
+  <!-- writeIdx_ offset arrow to slot 3 (center x=825, y=446) -->
+  <path d="M384 262 C384 365, 825 340, 825 442" class="producer-arrow" marker-end="url(#arrow-producer)"/>
+  <text x="842" y="414" class="left code-sm producer-text">writeIdx_ = 3</text>
+  <text x="842" y="432" class="left small">next slot to construct</text>
+
+  <!-- readIdx_ offset arrow to slot 1 (center x=565, y=446) -->
+  <path d="M904 262 C904 365, 565 340, 565 442" class="consumer-arrow" marker-end="url(#arrow-consumer)"/>
+  <text x="548" y="414" class="right code-sm consumer-text">readIdx_ = 1</text>
+  <text x="548" y="432" class="right small">next element to consume</text>
+
+  <!-- ===================================================================== -->
+  <!-- SECTION 2: Contiguous slots_ Allocation                               -->
+  <!-- ===================================================================== -->
+  <!-- Placed in the open region on the left above Leading Pad (x=122..480, y=412..432) -->
+  <text x="122" y="414" class="section">Element storage (slots_)</text>
+  <text x="122" y="433" class="small">capacity() = 4 → 5 ring slots + 2 × kPadding</text>
+
+  <!-- Leading kPadding slots (x=105..365, 2 cells of 130px = 260px = 1 False sharing range) -->
+  <rect x="105" y="446" width="130" height="86" class="pad"/>
+  <rect x="235" y="446" width="130" height="86" class="pad"/>
+  <text x="170" y="480" class="label code">Pad</text>
+  <text x="170" y="503" class="label small">T slot</text>
+  <text x="300" y="480" class="label code">Pad</text>
+  <text x="300" y="503" class="label small">T slot</text>
+
+  <!-- 5 Ring Buffer Slots (x=365..1015, 5 cells of 130px = 650px) -->
+  <!-- Slot 0: Available -->
+  <rect x="365" y="446" width="130" height="86" class="available"/>
+  <text x="430" y="478" class="label code">slot 0</text>
+  <text x="430" y="503" class="label small">Available</text>
+
+  <!-- Slot 1: Queued (readIdx_ = 1) -->
+  <rect x="495" y="446" width="130" height="86" class="cell"/>
+  <text x="560" y="478" class="label code">T · slot 1</text>
+  <text x="560" y="503" class="label small">Queued</text>
+
+  <!-- Slot 2: Queued -->
+  <rect x="625" y="446" width="130" height="86" class="cell"/>
+  <text x="690" y="478" class="label code">T · slot 2</text>
+  <text x="690" y="503" class="label small">Queued</text>
+
+  <!-- Slot 3: Available (writeIdx_ = 3) -->
+  <rect x="755" y="446" width="130" height="86" class="available"/>
+  <text x="820" y="478" class="label code">slot 3</text>
+  <text x="820" y="503" class="label small">Available</text>
+
+  <!-- Slot 4: Available -->
+  <rect x="885" y="446" width="130" height="86" class="available"/>
+  <text x="950" y="478" class="label code">slot 4</text>
+  <text x="950" y="503" class="label small">Available</text>
+
+  <!-- Trailing kPadding slots (x=1015..1275, 2 cells of 130px = 260px = 1 False sharing range) -->
+  <rect x="1015" y="446" width="130" height="86" class="pad"/>
+  <rect x="1145" y="446" width="130" height="86" class="pad"/>
+  <text x="1080" y="480" class="label code">Pad</text>
+  <text x="1080" y="503" class="label small">T slot</text>
+  <text x="1210" y="480" class="label code">Pad</text>
+  <text x="1210" y="503" class="label small">T slot</text>
+
+  <!-- Dimension arrows below leading and trailing padding, and bracket below ring slots -->
+  <path d="M105 536V568 M365 536V568 M1015 536V568 M1275 536V568" class="line"/>
+
+  <!-- Leading False sharing range -->
+  <path d="M109 554H361" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="235" y="578" class="dim-text">False sharing range</text>
+  <text x="235" y="598" class="label code-sm">kPadding elements</text>
+  <text x="235" y="617" class="label small">Isolates slot 0 from</text>
+  <text x="235" y="634" class="label small">preceding allocations</text>
+
+  <!-- Ring slots bracket -->
+  <path d="M373 544V554H1007V544" class="line"/>
+  <text x="690" y="578" class="label code">capacity_ = capacity() + 1 ring slots</text>
+  <text x="690" y="598" class="label code-sm">Element address = &amp;slots_[kPadding + index]</text>
+  <text x="690" y="618" class="label small">One slack slot always remains unused to distinguish full from empty</text>
+
+  <!-- Trailing False sharing range -->
+  <path d="M1019 554H1271" class="line" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="1145" y="578" class="dim-text">False sharing range</text>
+  <text x="1145" y="598" class="label code-sm">kPadding elements</text>
+  <text x="1145" y="617" class="label small">Isolates last slot from</text>
+  <text x="1145" y="634" class="label small">following allocations</text>
+
+  <!-- Formula box / footer explanation -->
+  <rect x="105" y="662" width="1170" height="70" rx="6" class="cell"/>
+  <text x="690" y="687" class="label code-sm">kPadding = (kFalseSharingRange - 1) / sizeof(T) + 1   →   kPadding × sizeof(T) ≥ kFalseSharingRange</text>
+  <text x="690" y="712" class="label note">Padding avoids false sharing both between queue members (via alignas(kFalseSharingRange)) and with allocations adjacent to slots_ (via kPadding).</text>
 </svg>

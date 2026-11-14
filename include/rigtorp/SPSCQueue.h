@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>      // std::allocator
-#include <new>         // std::hardware_destructive_interference_size
+#include <new>         // placement new
 #include <type_traits> // std::enable_if, std::is_*_constructible
 #include <utility>     // std::declval, std::forward
 
@@ -65,11 +65,11 @@ public:
         allocator_, capacity_ + 2 * kPadding);
 #endif
 
-    static_assert(alignof(SPSCQueue<T>) == kCacheLineSize, "");
-    static_assert(sizeof(SPSCQueue<T>) >= 3 * kCacheLineSize, "");
+    static_assert(alignof(SPSCQueue<T>) == kFalseSharingRange, "");
+    static_assert(sizeof(SPSCQueue<T>) >= 3 * kFalseSharingRange, "");
     assert(reinterpret_cast<char *>(&readIdx_) -
                reinterpret_cast<char *>(&writeIdx_) >=
-           static_cast<std::ptrdiff_t>(kCacheLineSize));
+           static_cast<std::ptrdiff_t>(kFalseSharingRange));
   }
 
   ~SPSCQueue() {
@@ -192,15 +192,17 @@ public:
   }
 
 private:
-#ifdef __cpp_lib_hardware_interference_size
-  static constexpr size_t kCacheLineSize =
-      std::hardware_destructive_interference_size;
+#if defined(__s390x__)
+  static constexpr size_t kFalseSharingRange = 256;
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__aarch64__) ||        \
+    defined(_M_ARM64) || defined(__powerpc64__)
+  static constexpr size_t kFalseSharingRange = 128;
 #else
-  static constexpr size_t kCacheLineSize = 64;
+  static constexpr size_t kFalseSharingRange = 64;
 #endif
 
   // Padding to avoid false sharing between slots_ and adjacent allocations
-  static constexpr size_t kPadding = (kCacheLineSize - 1) / sizeof(T) + 1;
+  static constexpr size_t kPadding = (kFalseSharingRange - 1) / sizeof(T) + 1;
 
 private:
   size_t capacity_;
@@ -214,10 +216,10 @@ private:
   // Align to cache line size in order to avoid false sharing
   // readIdxCache_ and writeIdxCache_ is used to reduce the amount of cache
   // coherency traffic
-  alignas(kCacheLineSize) std::atomic<size_t> writeIdx_ = {0};
-  alignas(kCacheLineSize) size_t readIdxCache_ = 0;
-  alignas(kCacheLineSize) std::atomic<size_t> readIdx_ = {0};
-  alignas(kCacheLineSize) size_t writeIdxCache_ = 0;
+  alignas(kFalseSharingRange) std::atomic<size_t> writeIdx_ = {0};
+  alignas(kFalseSharingRange) size_t readIdxCache_ = 0;
+  alignas(kFalseSharingRange) std::atomic<size_t> readIdx_ = {0};
+  alignas(kFalseSharingRange) size_t writeIdxCache_ = 0;
 };
 } // namespace rigtorp
 
