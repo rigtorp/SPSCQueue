@@ -44,9 +44,6 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
       -Wpedantic
       -Wno-c++17-extensions
     )
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
-      target_compile_options(${PROJECT_NAME}_warnings INTERFACE -Wno-interference-size)
-    endif()
     if(${PROJECT_NAME}_WARNINGS_AS_ERRORS)
       target_compile_options(${PROJECT_NAME}_warnings INTERFACE -Werror)
     endif()
