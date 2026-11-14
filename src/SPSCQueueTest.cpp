@@ -97,7 +97,6 @@ template <typename T> struct TrackingAllocator {
   }
 };
 
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
 template <typename T> struct OversizeAllocator {
   using value_type = T;
 
@@ -129,7 +128,6 @@ template <typename T> struct OversizeAllocator {
     ::operator delete(p);
   }
 };
-#endif
 
 static void testFunctionality() {
   using namespace rigtorp;
@@ -280,7 +278,7 @@ static void testTypeCategories() {
   // Small (sizeof == 1) and large (sizeof > kFalseSharingRange) element types
   {
     SPSCQueue<uint8_t> smallQ(3);
-    CHECK(smallQ.try_push(42));
+    CHECK(smallQ.try_push(uint8_t{42}));
     CHECK(*smallQ.front() == 42);
     smallQ.pop();
 
@@ -374,7 +372,6 @@ static void testCustomAllocator() {
   }
   CHECK(state.deallocations == 1);
 
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
   OversizeAllocator<int>::State oversizeState;
   oversizeState.extra = 3;
   {
@@ -391,7 +388,6 @@ static void testCustomAllocator() {
     }
   }
   CHECK(oversizeState.deallocated == oversizeState.allocated);
-#endif
 }
 
 static void testCapacityBounds() {

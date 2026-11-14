@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.21...3.30)
+cmake_minimum_required(VERSION 3.24...4.3)
 
 project(SPSCQueue
-  VERSION 1.1
+  VERSION 2.0.0
   HOMEPAGE_URL "https://github.com/rigtorp/SPSCQueue"
   LANGUAGES CXX
 )
@@ -12,11 +12,11 @@ project(SPSCQueue
 add_library(${PROJECT_NAME} INTERFACE)
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
-target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
-
-target_include_directories(${PROJECT_NAME} INTERFACE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_20)
+target_sources(${PROJECT_NAME} INTERFACE
+  FILE_SET HEADERS
+  BASE_DIRS include
+  FILES include/rigtorp/SPSCQueue.h
 )
 
 # -----------------------------------------------------------------------------
@@ -25,63 +25,31 @@ target_include_directories(${PROJECT_NAME} INTERFACE
 include(CTest)
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
-  option(${PROJECT_NAME}_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
-
-  add_library(${PROJECT_NAME}_warnings INTERFACE)
-  if(MSVC)
-    target_compile_options(${PROJECT_NAME}_warnings INTERFACE
-      /permissive-
-      /W4
-      /wd4324 # structure was padded due to alignment specifier
-    )
-    if(${PROJECT_NAME}_WARNINGS_AS_ERRORS)
-      target_compile_options(${PROJECT_NAME}_warnings INTERFACE /WX)
-    endif()
-  else()
-    target_compile_options(${PROJECT_NAME}_warnings INTERFACE
-      -Wall
-      -Wextra
-      -Wpedantic
-      -Wno-c++17-extensions
-    )
-    if(${PROJECT_NAME}_WARNINGS_AS_ERRORS)
-      target_compile_options(${PROJECT_NAME}_warnings INTERFACE -Werror)
-    endif()
-  endif()
-
   find_package(Threads REQUIRED)
 
-  if(UNIX AND NOT APPLE)
-    add_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
-    target_link_libraries(SPSCQueueBenchmark PRIVATE
-      ${PROJECT_NAME}
-      ${PROJECT_NAME}_warnings
+  function(spscqueue_executable target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE
+      ${PROJECT_NAME}::${PROJECT_NAME}
       Threads::Threads
     )
+    set_target_properties(${target} PROPERTIES
+      CXX_EXTENSIONS OFF
+      COMPILE_WARNING_AS_ERROR ON
+    )
+    target_compile_options(${target} PRIVATE
+      "$<$<CXX_COMPILER_ID:MSVC>:/permissive-;/W4;/wd4324>"
+      "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall;-Wextra;-Wpedantic>"
+    )
+  endfunction()
 
-    add_executable(SPSCQueueExampleHugepages src/SPSCQueueExampleHugepages.cpp)
-    target_link_libraries(SPSCQueueExampleHugepages PRIVATE
-      ${PROJECT_NAME}
-      ${PROJECT_NAME}_warnings
-      Threads::Threads
-    )
-    target_compile_features(SPSCQueueExampleHugepages PRIVATE cxx_std_17)
+  if(UNIX AND NOT APPLE)
+    spscqueue_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
+    spscqueue_executable(SPSCQueueExampleHugepages src/SPSCQueueExampleHugepages.cpp)
   endif()
 
-  add_executable(SPSCQueueExample src/SPSCQueueExample.cpp)
-  target_link_libraries(SPSCQueueExample PRIVATE
-    ${PROJECT_NAME}
-    ${PROJECT_NAME}_warnings
-    Threads::Threads
-  )
-
-  add_executable(SPSCQueueTest src/SPSCQueueTest.cpp)
-  target_link_libraries(SPSCQueueTest PRIVATE
-    ${PROJECT_NAME}
-    ${PROJECT_NAME}_warnings
-    Threads::Threads
-  )
-
+  spscqueue_executable(SPSCQueueExample src/SPSCQueueExample.cpp)
+  spscqueue_executable(SPSCQueueTest src/SPSCQueueTest.cpp)
   add_test(NAME SPSCQueueTest COMMAND SPSCQueueTest)
 
   option(${PROJECT_NAME}_COVERAGE "Check MC/DC coverage with gcov" OFF)
@@ -121,16 +89,7 @@ if(PROJECT_IS_TOP_LEVEL)
     ARCH_INDEPENDENT
   )
 
-  install(
-    DIRECTORY include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  )
-
-  install(
-    TARGETS ${PROJECT_NAME}
-    EXPORT ${PROJECT_NAME}Config
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  )
+  install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}Config FILE_SET HEADERS)
 
   install(
     EXPORT ${PROJECT_NAME}Config

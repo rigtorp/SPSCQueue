@@ -53,7 +53,7 @@
       "inherits": "debug",
       "cacheVariables": {
         "CMAKE_CXX_FLAGS": "--coverage -fcondition-coverage",
-        "CMAKE_CXX_STANDARD": "17",
+        "CMAKE_CXX_STANDARD": "20",
         "SPSCQueue_COVERAGE": "ON"
       }
     }
@@ -62,6 +62,21 @@
     {
       "name": "base",
       "hidden": true
+    },
+    {
+      "name": "debug",
+      "inherits": "base",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "configurePreset": "release"
+    },
+    {
+      "name": "asan",
+      "inherits": "base",
+      "configurePreset": "asan"
     },
     {
       "name": "tsan",

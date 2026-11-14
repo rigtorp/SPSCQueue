@@ -10,33 +10,12 @@
 #include <cstdint>
 #include <memory>      // std::allocator
 #include <new>         // placement new
-#include <type_traits> // std::enable_if, std::is_*_constructible
-#include <utility>     // std::declval, std::forward
-
-#ifdef __has_cpp_attribute
-#if __has_cpp_attribute(nodiscard)
-#define RIGTORP_SPSCQUEUE_NODISCARD [[nodiscard]]
-#endif
-#endif
-#ifndef RIGTORP_SPSCQUEUE_NODISCARD
-#define RIGTORP_SPSCQUEUE_NODISCARD
-#endif
+#include <type_traits> // std::is_*_v
+#include <utility>     // std::forward
 
 namespace rigtorp {
 
 template <typename T, typename Allocator = std::allocator<T>> class SPSCQueue {
-
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
-  template <typename Alloc2, typename = void>
-  struct has_allocate_at_least : std::false_type {};
-
-  template <typename Alloc2>
-  struct has_allocate_at_least<
-      Alloc2, std::void_t<typename Alloc2::value_type,
-                          decltype(std::declval<Alloc2 &>().allocate_at_least(
-                              size_t{}))>> : std::true_type {};
-#endif
-
 public:
   explicit SPSCQueue(const size_t capacity,
                      const Allocator &allocator = Allocator())
@@ -51,8 +30,9 @@ public:
     }
     capacity_++; // Needs one slack element
 
-#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
-    if constexpr (has_allocate_at_least<Allocator>::value) {
+    if constexpr (requires {
+                    allocator_.allocate_at_least(capacity_ + 2 * kPadding);
+                  }) {
       auto res = allocator_.allocate_at_least(capacity_ + 2 * kPadding);
       slots_ = res.ptr;
       capacity_ = res.count - 2 * kPadding;
@@ -60,13 +40,9 @@ public:
       slots_ = std::allocator_traits<Allocator>::allocate(
           allocator_, capacity_ + 2 * kPadding);
     }
-#else
-    slots_ = std::allocator_traits<Allocator>::allocate(
-        allocator_, capacity_ + 2 * kPadding);
-#endif
 
-    static_assert(alignof(SPSCQueue<T>) == kFalseSharingRange, "");
-    static_assert(sizeof(SPSCQueue<T>) >= 3 * kFalseSharingRange, "");
+    static_assert(alignof(SPSCQueue<T>) == kFalseSharingRange);
+    static_assert(sizeof(SPSCQueue<T>) >= 3 * kFalseSharingRange);
     assert(reinterpret_cast<char *>(&readIdx_) -
                reinterpret_cast<char *>(&writeIdx_) >=
            static_cast<std::ptrdiff_t>(kFalseSharingRange));
@@ -86,8 +62,8 @@ public:
 
   template <typename... Args>
   void emplace(Args &&...args) noexcept(
-      std::is_nothrow_constructible<T, Args &&...>::value) {
-    static_assert(std::is_constructible<T, Args &&...>::value,
+      std::is_nothrow_constructible_v<T, Args &&...>) {
+    static_assert(std::is_constructible_v<T, Args &&...>,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
     auto nextWriteIdx = writeIdx + 1;
@@ -102,9 +78,9 @@ public:
   }
 
   template <typename... Args>
-  RIGTORP_SPSCQUEUE_NODISCARD bool try_emplace(Args &&...args) noexcept(
-      std::is_nothrow_constructible<T, Args &&...>::value) {
-    static_assert(std::is_constructible<T, Args &&...>::value,
+  [[nodiscard]] bool try_emplace(Args &&...args) noexcept(
+      std::is_nothrow_constructible_v<T, Args &&...>) {
+    static_assert(std::is_constructible_v<T, Args &&...>,
                   "T must be constructible with Args&&...");
     auto const writeIdx = writeIdx_.load(std::memory_order_relaxed);
     auto nextWriteIdx = writeIdx + 1;
@@ -122,33 +98,33 @@ public:
     return true;
   }
 
-  void push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
-    static_assert(std::is_copy_constructible<T>::value,
+  void push(const T &v) noexcept(std::is_nothrow_copy_constructible_v<T>) {
+    static_assert(std::is_copy_constructible_v<T>,
                   "T must be copy constructible");
     emplace(v);
   }
 
-  template <typename P, typename = typename std::enable_if<
-                            std::is_constructible<T, P &&>::value>::type>
-  void push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
+  template <typename P>
+    requires std::is_constructible_v<T, P &&>
+  void push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
     emplace(std::forward<P>(v));
   }
 
-  RIGTORP_SPSCQUEUE_NODISCARD bool
-  try_push(const T &v) noexcept(std::is_nothrow_copy_constructible<T>::value) {
-    static_assert(std::is_copy_constructible<T>::value,
+  [[nodiscard]] bool
+  try_push(const T &v) noexcept(std::is_nothrow_copy_constructible_v<T>) {
+    static_assert(std::is_copy_constructible_v<T>,
                   "T must be copy constructible");
     return try_emplace(v);
   }
 
-  template <typename P, typename = typename std::enable_if<
-                            std::is_constructible<T, P &&>::value>::type>
-  RIGTORP_SPSCQUEUE_NODISCARD bool
-  try_push(P &&v) noexcept(std::is_nothrow_constructible<T, P &&>::value) {
+  template <typename P>
+    requires std::is_constructible_v<T, P &&>
+  [[nodiscard]] bool
+  try_push(P &&v) noexcept(std::is_nothrow_constructible_v<T, P &&>) {
     return try_emplace(std::forward<P>(v));
   }
 
-  RIGTORP_SPSCQUEUE_NODISCARD T *front() noexcept {
+  [[nodiscard]] T *front() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     if (readIdx == writeIdxCache_) {
       writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
@@ -160,7 +136,7 @@ public:
   }
 
   void pop() noexcept {
-    static_assert(std::is_nothrow_destructible<T>::value,
+    static_assert(std::is_nothrow_destructible_v<T>,
                   "T must be nothrow destructible");
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
@@ -173,7 +149,7 @@ public:
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
-  RIGTORP_SPSCQUEUE_NODISCARD size_t size() const noexcept {
+  [[nodiscard]] size_t size() const noexcept {
     std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
                           readIdx_.load(std::memory_order_acquire);
     if (diff < 0) {
@@ -182,14 +158,12 @@ public:
     return static_cast<size_t>(diff);
   }
 
-  RIGTORP_SPSCQUEUE_NODISCARD bool empty() const noexcept {
+  [[nodiscard]] bool empty() const noexcept {
     return writeIdx_.load(std::memory_order_acquire) ==
            readIdx_.load(std::memory_order_acquire);
   }
 
-  RIGTORP_SPSCQUEUE_NODISCARD size_t capacity() const noexcept {
-    return capacity_ - 1;
-  }
+  [[nodiscard]] size_t capacity() const noexcept { return capacity_ - 1; }
 
 private:
 #if defined(__s390x__)
@@ -222,7 +196,5 @@ private:
   alignas(kFalseSharingRange) size_t writeIdxCache_ = 0;
 };
 } // namespace rigtorp
-
-#undef RIGTORP_SPSCQUEUE_NODISCARD
 
 #endif // RIGTORP_SPSCQUEUE_H

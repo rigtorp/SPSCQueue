@@ -9,7 +9,7 @@ jobs:
   ci:
     uses: rigtorp/.github/.github/workflows/cpp-ci.yml@master
     with:
-      cxx-standards: '["11", "17", "20"]'
+      cxx-standards: '["20"]'
       run-sanitizers: true
       enable-windows: true
       enable-macos: true
