@@ -21,7 +21,7 @@ void pinThread(int cpu) {
   }
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
-  CPU_SET(cpu, &cpuset);
+  CPU_SET(static_cast<size_t>(cpu), &cpuset);
   if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) ==
       -1) {
     perror("pthread_setaffinity_np");
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::steady_clock::now();
     for (int64_t i = 0; i < iters; ++i) {
-      q.emplace(i);
+      q.emplace(static_cast<int>(i));
     }
     t.join();
     auto stop = std::chrono::steady_clock::now();
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::steady_clock::now();
     for (int64_t i = 0; i < iters; ++i) {
-      q1.emplace(i);
+      q1.emplace(static_cast<int>(i));
       while (!q2.front())
         ;
       q2.pop();
@@ -126,7 +126,7 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::steady_clock::now();
     for (int64_t i = 0; i < iters; ++i) {
-      while (!q.push(i))
+      while (!q.push(static_cast<int>(i)))
         ;
     }
     t.join();
@@ -155,7 +155,7 @@ int main(int argc, char *argv[]) {
 
     auto start = std::chrono::steady_clock::now();
     for (int64_t i = 0; i < iters; ++i) {
-      while (!q1.push(i))
+      while (!q1.push(static_cast<int>(i)))
         ;
       int val;
       while (q2.pop(&val, 1) != 1)
