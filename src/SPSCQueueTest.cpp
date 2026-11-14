@@ -286,7 +286,10 @@ static void testTypeCategories() {
 
     struct Large {
       char buf[512];
-      explicit Large(char c) noexcept { buf[0] = c; buf[511] = c; }
+      explicit Large(char c) noexcept {
+        buf[0] = c;
+        buf[511] = c;
+      }
     };
     SPSCQueue<Large> largeQ(2);
     largeQ.emplace('z');
