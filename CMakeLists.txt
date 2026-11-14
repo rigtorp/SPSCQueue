@@ -91,22 +91,22 @@ endif()
 # -----------------------------------------------------------------------------
 # Installation & Package Export
 # -----------------------------------------------------------------------------
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
-
-export(
-  TARGETS ${PROJECT_NAME}
-  NAMESPACE ${PROJECT_NAME}::
-  FILE "${PROJECT_NAME}Config.cmake"
-)
-
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-  COMPATIBILITY SameMajorVersion
-  ARCH_INDEPENDENT
-)
-
 if(PROJECT_IS_TOP_LEVEL)
+  include(GNUInstallDirs)
+  include(CMakePackageConfigHelpers)
+
+  export(
+    TARGETS ${PROJECT_NAME}
+    NAMESPACE ${PROJECT_NAME}::
+    FILE "${PROJECT_NAME}Config.cmake"
+  )
+
+  write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+    COMPATIBILITY SameMajorVersion
+    ARCH_INDEPENDENT
+  )
+
   install(
     DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
