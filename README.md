@@ -186,6 +186,44 @@ the implementation:
 - A multi-threaded fuzz test verifies that all items are enqueued and dequeued
   correctly under heavy contention.
 
+### Bounded weak-memory verification
+
+The optional [GenMC](https://github.com/MPI-SWS/genmc) harness includes the actual
+queue header and checks one producer and one consumer under RC11. From the
+repository root, use the pinned Nix environment (Linux):
+
+```sh
+nix develop path:./verification/genmc --command python3 verification/genmc/run.py
+```
+
+The default checks use capacities 1, 2, and 3. A sequential fill/drain first
+checks full/empty behavior and positions both indices at the last ring index.
+The concurrent phase then transfers respectively 3, 4, and 5 elements, crossing
+two wrap boundaries. This scenario assumes each enqueue/dequeue attempt succeeds;
+executions where an attempt fails are blocked, rather than retried. A second
+scenario makes the same number of attempts without these assumptions, retaining
+full/empty failures and checking any remaining elements after joining the threads.
+Both scenarios assert FIFO order, two-word payload publication, and final
+emptiness. Payload destruction writes to the slot to exercise synchronization
+before reuse. GenMC also checks for races on non-atomic storage.
+
+The runner checks temporary copies of the header with either the publication
+or reclamation release stores weakened to relaxed. Publication must be rejected
+for an uninitialized read or race, and reclamation for a race or unordered writes;
+compilation errors and timeouts are failures, not successful checks.
+The repository header is never mutated. Logs are written to `build/genmc/`.
+
+These are bounded safety checks, not a proof for arbitrary capacities, element
+types, allocators, or operation counts, and not a proof of progress or general
+linearizability. Concurrent operations exercise `try_emplace`, `front`, and `pop`;
+they do not cover every API overload. Loops are bounded to 32 iterations at the
+LLVM IR level; the runner requires at least one complete execution per positive
+check. It uses GenMC's thread API, ordinary `std::atomic` operations, unsized
+deallocation, and libstdc++'s single-thread backend for unrelated standard-library
+internals that GenMC does not model. The queue implementation and its memory
+orders are unchanged. Use `--help` to change capacities, item count, loop bound,
+timeout, or log directory. Nix and GenMC are not required for normal builds.
+
 ## Benchmarks
 
 Throughput benchmark measures throughput between 2 threads for a queue of `int`
