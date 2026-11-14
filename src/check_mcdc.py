@@ -77,11 +77,8 @@ def main():
     for ln, (cov, tot, code, uncov) in gaps.items():
         print(f"CONDITION GAP L{ln} ({cov}/{tot}): {code} -> {uncov}")
 
-    # Allow only the unreachable placement-new null check and debug assert false branch.
-    unexpected = [
-        ln for ln in gaps
-        if "new (" not in gaps[ln][2] and "assert(" not in gaps[ln][2]
-    ]
+    # Allow only the unreachable debug assert false branch.
+    unexpected = [ln for ln in gaps if "assert(" not in gaps[ln][2]]
     if never_exec or unexpected:
         sys.exit(1)
 

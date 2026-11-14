@@ -8,8 +8,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <memory>      // std::allocator
-#include <new>         // placement new
+#include <memory>      // std::allocator, std::construct_at, std::destroy_at
 #include <type_traits> // std::is_*_v
 #include <utility>     // std::forward
 
@@ -73,7 +72,8 @@ public:
     while (nextWriteIdx == readIdxCache_) {
       readIdxCache_ = readIdx_.load(std::memory_order_acquire);
     }
-    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    std::construct_at(&slots_[writeIdx + kPadding],
+                      std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
   }
 
@@ -93,7 +93,8 @@ public:
         return false;
       }
     }
-    new (&slots_[writeIdx + kPadding]) T(std::forward<Args>(args)...);
+    std::construct_at(&slots_[writeIdx + kPadding],
+                      std::forward<Args>(args)...);
     writeIdx_.store(nextWriteIdx, std::memory_order_release);
     return true;
   }
@@ -141,7 +142,7 @@ public:
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
     assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
            "Can only call pop() after front() has returned a non-nullptr");
-    slots_[readIdx + kPadding].~T();
+    std::destroy_at(&slots_[readIdx + kPadding]);
     auto nextReadIdx = readIdx + 1;
     if (nextReadIdx == capacity_) {
       nextReadIdx = 0;
