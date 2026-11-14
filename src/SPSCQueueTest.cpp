@@ -1,78 +1,196 @@
 // SPDX-FileCopyrightText: 2018 Erik Rigtorp <erik@rigtorp.se>
 // SPDX-License-Identifier: MIT
 
-#undef NDEBUG
-
-#include <cassert>
+#include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <rigtorp/SPSCQueue.h>
 #include <set>
+#include <stdexcept>
 #include <thread>
+#include <type_traits>
+
+#if (defined(__unix__) || defined(__APPLE__)) && !defined(NDEBUG)
+#include <csignal>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+#define CHECK(expr)                                                            \
+  do {                                                                         \
+    if (!(expr)) {                                                             \
+      std::cerr << __FILE__ << ":" << __LINE__ << ": CHECK failed: " #expr     \
+                << std::endl;                                                  \
+      std::abort();                                                            \
+    }                                                                          \
+  } while (false)
 
 // TestType tracks correct usage of constructors and destructors
 struct TestType {
   static std::set<const TestType *> constructed;
   TestType() noexcept {
-    assert(constructed.count(this) == 0);
+    CHECK(constructed.count(this) == 0);
     constructed.insert(this);
   };
   TestType(const TestType &other) noexcept {
-    assert(constructed.count(this) == 0);
-    assert(constructed.count(&other) == 1);
+    CHECK(constructed.count(this) == 0);
+    CHECK(constructed.count(&other) == 1);
     constructed.insert(this);
   };
   TestType(TestType &&other) noexcept {
-    assert(constructed.count(this) == 0);
-    assert(constructed.count(&other) == 1);
+    CHECK(constructed.count(this) == 0);
+    CHECK(constructed.count(&other) == 1);
     constructed.insert(this);
   };
   TestType &operator=(const TestType &other) noexcept {
-    assert(constructed.count(this) == 1);
-    assert(constructed.count(&other) == 1);
+    CHECK(constructed.count(this) == 1);
+    CHECK(constructed.count(&other) == 1);
     return *this;
   };
   TestType &operator=(TestType &&other) noexcept {
-    assert(constructed.count(this) == 1);
-    assert(constructed.count(&other) == 1);
+    CHECK(constructed.count(this) == 1);
+    CHECK(constructed.count(&other) == 1);
     return *this;
   }
   ~TestType() noexcept {
-    assert(constructed.count(this) == 1);
+    CHECK(constructed.count(this) == 1);
     constructed.erase(this);
   };
 };
 
 std::set<const TestType *> TestType::constructed;
 
-int main(int argc, char *argv[]) {
-  (void)argc, (void)argv;
+template <typename T> struct TrackingAllocator {
+  using value_type = T;
 
+  struct State {
+    size_t allocations = 0;
+    size_t deallocations = 0;
+    T *lastPtr = nullptr;
+    size_t lastCount = 0;
+  };
+
+  State *state;
+
+  explicit TrackingAllocator(State *s) noexcept : state(s) {}
+
+  template <typename U>
+  TrackingAllocator(const TrackingAllocator<U> &other) noexcept
+      : state(other.state) {}
+
+  T *allocate(size_t n) {
+    ++state->allocations;
+    state->lastCount = n;
+    state->lastPtr = static_cast<T *>(::operator new(n * sizeof(T)));
+    return state->lastPtr;
+  }
+
+  void deallocate(T *p, size_t n) noexcept {
+    CHECK(p == state->lastPtr);
+    CHECK(n == state->lastCount);
+    ++state->deallocations;
+    ::operator delete(p);
+  }
+};
+
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+template <typename T> struct OversizeAllocator {
+  using value_type = T;
+
+  struct AllocationResult {
+    T *ptr;
+    size_t count;
+  };
+
+  struct State {
+    size_t extra = 0;
+    size_t requested = 0;
+    size_t allocated = 0;
+    size_t deallocated = 0;
+  };
+
+  State *state;
+
+  explicit OversizeAllocator(State *s) noexcept : state(s) {}
+
+  AllocationResult allocate_at_least(size_t n) {
+    state->requested = n;
+    state->allocated = n + state->extra;
+    return {static_cast<T *>(::operator new(state->allocated * sizeof(T))),
+            state->allocated};
+  }
+
+  void deallocate(T *p, size_t n) noexcept {
+    state->deallocated = n;
+    ::operator delete(p);
+  }
+};
+#endif
+
+static void testFunctionality() {
   using namespace rigtorp;
 
-  // Functionality test
   {
     SPSCQueue<TestType> q(10);
-    assert(q.front() == nullptr);
-    assert(q.size() == 0);
-    assert(q.empty() == true);
-    assert(q.capacity() == 10);
+    CHECK(q.front() == nullptr);
+    CHECK(q.size() == 0);
+    CHECK(q.empty() == true);
+    CHECK(q.capacity() == 10);
     for (int i = 0; i < 10; i++) {
       q.emplace();
     }
-    assert(q.front() != nullptr);
-    assert(q.size() == 10);
-    assert(q.empty() == false);
-    assert(TestType::constructed.size() == 10);
-    assert(q.try_emplace() == false);
+    CHECK(q.front() != nullptr);
+    CHECK(q.size() == 10);
+    CHECK(q.empty() == false);
+    CHECK(TestType::constructed.size() == 10);
+    CHECK(q.try_emplace() == false);
     q.pop();
-    assert(q.size() == 9);
-    assert(TestType::constructed.size() == 9);
+    CHECK(q.size() == 9);
+    CHECK(TestType::constructed.size() == 9);
     q.pop();
-    assert(q.try_emplace() == true);
-    assert(TestType::constructed.size() == 9);
+    CHECK(q.size() == 8);
+    CHECK(q.try_emplace() == true);
+    // writeIdx_ has now wrapped past readIdx_
+    CHECK(q.size() == 9);
+    CHECK(q.empty() == false);
+    CHECK(TestType::constructed.size() == 9);
+    CHECK(q.try_emplace() == true);
+    CHECK(q.size() == 10);
+    CHECK(q.try_emplace() == false);
+    CHECK(TestType::constructed.size() == 10);
+    q.pop();
+    CHECK(q.size() == 9);
+    // Destroy non-empty wrapped-around queue
   }
-  assert(TestType::constructed.size() == 0);
+  CHECK(TestType::constructed.size() == 0);
+
+  // Minimal capacity == 1 across multiple wraparounds
+  {
+    SPSCQueue<int> q(1);
+    CHECK(q.capacity() == 1);
+    for (int i = 0; i < 5; ++i) {
+      CHECK(q.empty());
+      CHECK(q.size() == 0);
+      CHECK(q.front() == nullptr);
+      CHECK(q.try_push(i));
+      CHECK(!q.empty());
+      CHECK(q.size() == 1);
+      CHECK(!q.try_push(i + 1));
+      CHECK(q.front() != nullptr);
+      CHECK(*q.front() == i);
+      q.pop();
+    }
+    CHECK(q.empty());
+    CHECK(q.size() == 0);
+  }
+}
+
+static void testTypeCategories() {
+  using namespace rigtorp;
 
   // Copyable only type
   {
@@ -127,12 +245,6 @@ int main(int argc, char *argv[]) {
   // Movable only type
   {
     SPSCQueue<std::unique_ptr<int>> q(16);
-    // lvalue
-    // auto v = std::unique_ptr<int>(new int(1));
-    // q.emplace(v);
-    // q.try_emplace(v);
-    // q.push(v);
-    // q.try_push(v);
     // xvalue
     q.emplace(std::unique_ptr<int>(new int(1)));
     (void)q.try_emplace(std::unique_ptr<int>(new int(1)));
@@ -145,10 +257,147 @@ int main(int argc, char *argv[]) {
     static_assert(noexcept(q.try_push(std::move(v))) == true, "");
   }
 
+  // Non-default-constructible, non-copyable, non-movable type with multi-arg
+  // emplace
+  {
+    struct Immovable {
+      int a;
+      int b;
+      Immovable(int x, int y) noexcept : a(x), b(y) {}
+      Immovable(const Immovable &) = delete;
+      Immovable(Immovable &&) = delete;
+    };
+    SPSCQueue<Immovable> q(4);
+    q.emplace(1, 2);
+    CHECK(q.try_emplace(3, 4));
+    CHECK(q.front()->a == 1 && q.front()->b == 2);
+    q.pop();
+    CHECK(q.front()->a == 3 && q.front()->b == 4);
+    q.pop();
+    CHECK(q.empty());
+  }
+
+  // Small (sizeof == 1) and large (sizeof > kFalseSharingRange) element types
+  {
+    SPSCQueue<uint8_t> smallQ(3);
+    CHECK(smallQ.try_push(42));
+    CHECK(*smallQ.front() == 42);
+    smallQ.pop();
+
+    struct Large {
+      char buf[512];
+      explicit Large(char c) noexcept { buf[0] = c; buf[511] = c; }
+    };
+    SPSCQueue<Large> largeQ(2);
+    largeQ.emplace('z');
+    CHECK(largeQ.front()->buf[0] == 'z');
+    CHECK(largeQ.front()->buf[511] == 'z');
+    largeQ.pop();
+  }
+}
+
+static void testExceptionSafety() {
+  using namespace rigtorp;
+
+  struct TrackedThrow {
+    int *liveCount;
+    int value;
+    TrackedThrow(int *live, int v, bool shouldThrow)
+        : liveCount(live), value(v) {
+      if (shouldThrow) {
+        throw std::runtime_error("boom");
+      }
+      ++(*liveCount);
+    }
+    ~TrackedThrow() noexcept { --(*liveCount); }
+  };
+
+  int live = 0;
+  {
+    SPSCQueue<TrackedThrow> q(3);
+    q.emplace(&live, 10, false);
+    CHECK(live == 1);
+    CHECK(q.size() == 1);
+
+    bool threw = false;
+    try {
+      q.emplace(&live, 20, true);
+    } catch (const std::runtime_error &) {
+      threw = true;
+    }
+    CHECK(threw);
+    CHECK(live == 1);
+    CHECK(q.size() == 1);
+
+    threw = false;
+    try {
+      (void)q.try_emplace(&live, 30, true);
+    } catch (const std::runtime_error &) {
+      threw = true;
+    }
+    CHECK(threw);
+    CHECK(live == 1);
+    CHECK(q.size() == 1);
+
+    q.emplace(&live, 40, false);
+    CHECK(live == 2);
+    CHECK(q.size() == 2);
+    CHECK(q.front()->value == 10);
+    q.pop();
+    CHECK(q.front()->value == 40);
+    q.pop();
+    CHECK(q.empty());
+  }
+  CHECK(live == 0);
+}
+
+static void testCustomAllocator() {
+  using namespace rigtorp;
+
+  TrackingAllocator<int>::State state;
+  {
+    SPSCQueue<int, TrackingAllocator<int>> q(5, TrackingAllocator<int>(&state));
+    CHECK(state.allocations == 1);
+    CHECK(state.deallocations == 0);
+    CHECK(q.capacity() == 5);
+    for (int i = 0; i < 5; ++i) {
+      CHECK(q.try_push(i));
+    }
+    CHECK(!q.try_push(99));
+    for (int i = 0; i < 5; ++i) {
+      CHECK(*q.front() == i);
+      q.pop();
+    }
+  }
+  CHECK(state.deallocations == 1);
+
+#if defined(__cpp_if_constexpr) && defined(__cpp_lib_void_t)
+  OversizeAllocator<int>::State oversizeState;
+  oversizeState.extra = 3;
+  {
+    SPSCQueue<int, OversizeAllocator<int>> q(
+        4, OversizeAllocator<int>(&oversizeState));
+    CHECK(q.capacity() == 7);
+    for (int i = 0; i < 7; ++i) {
+      CHECK(q.try_push(i));
+    }
+    CHECK(!q.try_push(100));
+    for (int i = 0; i < 7; ++i) {
+      CHECK(*q.front() == i);
+      q.pop();
+    }
+  }
+  CHECK(oversizeState.deallocated == oversizeState.allocated);
+#endif
+}
+
+static void testCapacityBounds() {
+  using namespace rigtorp;
+
   // capacity < 1
   {
     SPSCQueue<int> q(0);
-    assert(q.capacity() == 1);
+    CHECK(q.capacity() == 1);
   }
 
   // Check that padding doesn't overflow capacity
@@ -159,7 +408,7 @@ int main(int argc, char *argv[]) {
     } catch (...) {
       throws = true;
     }
-    assert(throws);
+    CHECK(throws);
   }
 
   {
@@ -169,8 +418,12 @@ int main(int argc, char *argv[]) {
     } catch (...) {
       throws = true;
     }
-    assert(throws);
+    CHECK(throws);
   }
+}
+
+static void testConcurrency() {
+  using namespace rigtorp;
 
   // Fuzz and performance test
   {
@@ -198,13 +451,112 @@ int main(int argc, char *argv[]) {
     auto duration =
         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
-    assert(q.front() == nullptr);
-    assert(sum == iter * (iter - 1) / 2);
+    CHECK(q.front() == nullptr);
+    CHECK(sum == iter * (iter - 1) / 2);
 
     producer.join();
 
     std::cout << duration.count() / iter << " ns/iter" << std::endl;
   }
+
+  // Contended try_emplace / try_push with multi-word payload and small ring
+  {
+    struct Payload {
+      size_t seq;
+      size_t check;
+      explicit Payload(size_t s) noexcept : seq(s), check(s ^ 0x5a5a5a5a) {}
+    };
+
+    const size_t iter = 50000;
+    SPSCQueue<Payload> q(7);
+    std::thread producer([&] {
+      for (size_t i = 0; i < iter; ++i) {
+        while (!q.try_emplace(i)) {
+          CHECK(q.size() <= q.capacity());
+        }
+      }
+    });
+
+    for (size_t i = 0; i < iter; ++i) {
+      Payload *p = nullptr;
+      while ((p = q.front()) == nullptr) {
+        CHECK(q.size() <= q.capacity());
+      }
+      CHECK(p->seq == i);
+      CHECK(p->check == (i ^ 0x5a5a5a5a));
+      q.pop();
+    }
+
+    producer.join();
+    CHECK(q.empty());
+    CHECK(q.size() == 0);
+  }
+
+  // Blocking emplace unblocks when consumer drains a full queue
+  {
+    SPSCQueue<int> q(2);
+    q.push(1);
+    q.push(2);
+
+    std::atomic<bool> pushedThird(false);
+    std::thread consumer([&] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      CHECK(*q.front() == 1);
+      q.pop();
+      CHECK(*q.front() == 2);
+      q.pop();
+    });
+
+    q.push(3);
+    pushedThird.store(true);
+    consumer.join();
+
+    CHECK(pushedThird.load());
+    CHECK(*q.front() == 3);
+    q.pop();
+    CHECK(q.empty());
+  }
+}
+
+static void testDeathPopEmpty() {
+#if (defined(__unix__) || defined(__APPLE__)) && !defined(NDEBUG)
+  using namespace rigtorp;
+
+  std::cout.flush();
+  std::cerr.flush();
+
+  pid_t pid = fork();
+  CHECK(pid >= 0);
+  if (pid == 0) {
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) {
+      dup2(devnull, STDERR_FILENO);
+      close(devnull);
+    }
+    // Exit from the SIGABRT handler so assert() failure does not invoke
+    // coredumpctl / ABRT via default SIGABRT termination.
+    std::signal(SIGABRT, [](int) { _exit(42); });
+    SPSCQueue<int> q(2);
+    q.pop(); // Must abort in debug builds
+    _exit(0);
+  }
+
+  int status = 0;
+  CHECK(waitpid(pid, &status, 0) == pid);
+  CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 42);
+#endif
+}
+
+int main(int argc, char *argv[]) {
+  (void)argc, (void)argv;
+
+  testFunctionality();
+  testTypeCategories();
+  testExceptionSafety();
+  testCustomAllocator();
+  testCapacityBounds();
+  testDeathPopEmpty();
+  testConcurrency();
 
   return 0;
 }

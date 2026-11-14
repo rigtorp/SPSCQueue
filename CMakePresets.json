@@ -46,6 +46,16 @@
       "cacheVariables": {
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer"
       }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Debug (Coverage)",
+      "inherits": "debug",
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "--coverage -fcondition-coverage",
+        "CMAKE_CXX_STANDARD": "17",
+        "SPSCQueue_COVERAGE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -54,24 +64,14 @@
       "hidden": true
     },
     {
-      "name": "debug",
-      "inherits": "base",
-      "configurePreset": "debug"
-    },
-    {
-      "name": "release",
-      "inherits": "base",
-      "configurePreset": "release"
-    },
-    {
-      "name": "asan",
-      "inherits": "base",
-      "configurePreset": "asan"
-    },
-    {
       "name": "tsan",
       "inherits": "base",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "coverage",
+      "inherits": "base",
+      "configurePreset": "coverage"
     }
   ],
   "testPresets": [
@@ -101,6 +101,11 @@
       "name": "tsan",
       "inherits": "base",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "coverage",
+      "inherits": "base",
+      "configurePreset": "coverage"
     }
   ]
 }

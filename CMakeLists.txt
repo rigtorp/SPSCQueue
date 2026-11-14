@@ -83,6 +83,23 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
   )
 
   add_test(NAME SPSCQueueTest COMMAND SPSCQueueTest)
+
+  option(${PROJECT_NAME}_COVERAGE "Check MC/DC coverage with gcov" OFF)
+  if(${PROJECT_NAME}_COVERAGE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if(CMAKE_CXX_COMPILER MATCHES "g\\+\\+(-[0-9]+)?$")
+      find_program(GCOV_EXECUTABLE NAMES "gcov${CMAKE_MATCH_1}" gcov REQUIRED)
+    else()
+      find_program(GCOV_EXECUTABLE NAMES gcov REQUIRED)
+    endif()
+    add_test(
+      NAME SPSCQueueMCDC
+      COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/src/check_mcdc.py"
+        --gcno "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/SPSCQueueTest.dir/src/SPSCQueueTest.cpp.gcno"
+        --gcov "${GCOV_EXECUTABLE}"
+    )
+    set_tests_properties(SPSCQueueMCDC PROPERTIES DEPENDS SPSCQueueTest)
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
