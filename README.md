@@ -1,7 +1,7 @@
 # SPSCQueue.h
 
 A single producer single consumer wait-free and lock-free fixed size queue
-written in C++11. This implementation is faster than both
+written in C++20. This implementation is faster than both
 [*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html)
 and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md).
 
