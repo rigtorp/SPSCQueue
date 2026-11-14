@@ -39,7 +39,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     )
     target_compile_options(${target} PRIVATE
       "$<$<CXX_COMPILER_ID:MSVC>:/permissive-;/W4;/wd4324;/w14242>"
-      "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion;-Wold-style-cast;-Wundef;-Wnull-dereference;-Wcast-align;-Wzero-as-null-pointer-constant;-Wformat=2>"
+      "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion;-Wold-style-cast;-Wundef;-Wcast-align;-Wzero-as-null-pointer-constant;-Wformat=2>"
     )
   endfunction()
 
