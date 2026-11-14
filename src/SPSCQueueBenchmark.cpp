@@ -24,7 +24,7 @@ void pinThread(int cpu) {
   CPU_SET(cpu, &cpuset);
   if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) ==
       -1) {
-    perror("pthread_setaffinity_no");
+    perror("pthread_setaffinity_np");
     exit(1);
   }
 }
@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
     SPSCQueue<int> q(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         while (!q.front())
           ;
         if (*q.front() != i) {
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       q.emplace(i);
     }
     t.join();
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
     SPSCQueue<int> q1(queueSize), q2(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         while (!q1.front())
           ;
         q2.emplace(*q1.front());
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       q1.emplace(i);
       while (!q2.front())
         ;
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
     boost::lockfree::spsc_queue<int> q(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         int val;
         while (q.pop(&val, 1) != 1)
           ;
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       while (!q.push(i))
         ;
     }
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
     boost::lockfree::spsc_queue<int> q1(queueSize), q2(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         int val;
         while (q1.pop(&val, 1) != 1)
           ;
@@ -154,7 +154,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       while (!q1.push(i))
         ;
       int val;
@@ -178,7 +178,7 @@ int main(int argc, char *argv[]) {
     folly::ProducerConsumerQueue<int> q(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         int val;
         while (!q.read(val))
           ;
@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       while (!q.write(i))
         ;
     }
@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
     folly::ProducerConsumerQueue<int> q1(queueSize), q2(queueSize);
     auto t = std::thread([&] {
       pinThread(cpu1);
-      for (int i = 0; i < iters; ++i) {
+      for (int64_t i = 0; i < iters; ++i) {
         int val;
         while (!q1.read(val))
           ;
@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
     pinThread(cpu2);
 
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iters; ++i) {
+    for (int64_t i = 0; i < iters; ++i) {
       while (!q1.write(i))
         ;
       int val;
