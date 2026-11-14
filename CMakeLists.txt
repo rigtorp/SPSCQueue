@@ -25,8 +25,6 @@ target_sources(${PROJECT_NAME} INTERFACE
 include(CTest)
 
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
-  option(${PROJECT_NAME}_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
-
   find_package(Threads REQUIRED)
 
   function(spscqueue_executable target source)
@@ -37,7 +35,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     )
     set_target_properties(${target} PROPERTIES
       CXX_EXTENSIONS OFF
-      COMPILE_WARNING_AS_ERROR ${${PROJECT_NAME}_WARNINGS_AS_ERRORS}
+      COMPILE_WARNING_AS_ERROR ON
     )
     target_compile_options(${target} PRIVATE
       "$<$<CXX_COMPILER_ID:MSVC>:/permissive-;/W4;/wd4324>"
