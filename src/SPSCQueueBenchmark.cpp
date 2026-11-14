@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
       pinThread(cpu1);
       for (int64_t i = 0; i < iters; ++i) {
         int val;
-        while (q.pop(&val, 1) != 1)
+        while (!q.pop(val))
           ;
         if (val != i) {
           throw std::runtime_error("");
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
       pinThread(cpu1);
       for (int64_t i = 0; i < iters; ++i) {
         int val;
-        while (q1.pop(&val, 1) != 1)
+        while (!q1.pop(val))
           ;
         while (!q2.push(val))
           ;
@@ -176,7 +176,7 @@ int main(int argc, char *argv[]) {
       while (!q1.push(static_cast<int>(i)))
         ;
       int val;
-      while (q2.pop(&val, 1) != 1)
+      while (!q2.pop(val))
         ;
     }
     auto stop = std::chrono::steady_clock::now();
