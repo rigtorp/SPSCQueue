@@ -150,12 +150,10 @@ public:
   }
 
   [[nodiscard]] size_t size() const noexcept {
-    std::ptrdiff_t diff = writeIdx_.load(std::memory_order_acquire) -
-                          readIdx_.load(std::memory_order_acquire);
-    if (diff < 0) {
-      diff += capacity_;
-    }
-    return static_cast<size_t>(diff);
+    auto const writeIdx = writeIdx_.load(std::memory_order_acquire);
+    auto const readIdx = readIdx_.load(std::memory_order_acquire);
+    return writeIdx >= readIdx ? writeIdx - readIdx
+                               : capacity_ - readIdx + writeIdx;
   }
 
   [[nodiscard]] bool empty() const noexcept {

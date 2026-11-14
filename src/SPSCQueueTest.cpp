@@ -455,7 +455,8 @@ static void testConcurrency() {
 
     producer.join();
 
-    std::cout << duration.count() / iter << " ns/iter" << std::endl;
+    std::cout << duration.count() / static_cast<int64_t>(iter) << " ns/iter"
+              << std::endl;
   }
 
   // Contended try_emplace / try_push with multi-word payload and small ring
