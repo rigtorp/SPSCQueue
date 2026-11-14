@@ -47,6 +47,62 @@ void pinThread(int cpu) {
   }
 }
 
+template <typename Consumer, typename Producer>
+static void benchThroughput(int cpu1, int cpu2, int64_t iters,
+                            Consumer &&consumer, Producer &&producer) {
+  auto run = [&] {
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int64_t i = 0; i < iters; ++i) {
+        consumer(i);
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int64_t i = 0; i < iters; ++i) {
+      producer(i);
+    }
+    t.join();
+    auto stop = std::chrono::steady_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
+        .count();
+  };
+
+  run(); // warmup
+  auto ns = run();
+  std::cout << iters * 1000000 / ns << " ops/ms" << std::endl;
+}
+
+template <typename Consumer, typename Producer>
+static void benchRTT(int cpu1, int cpu2, int64_t iters, Consumer &&consumer,
+                     Producer &&producer) {
+  auto run = [&] {
+    auto t = std::thread([&] {
+      pinThread(cpu1);
+      for (int64_t i = 0; i < iters; ++i) {
+        consumer();
+      }
+    });
+
+    pinThread(cpu2);
+
+    auto start = std::chrono::steady_clock::now();
+    for (int64_t i = 0; i < iters; ++i) {
+      producer(i);
+    }
+    auto stop = std::chrono::steady_clock::now();
+    t.join();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
+        .count();
+  };
+
+  run(); // warmup
+  auto ns = run();
+  std::cout << ns / iters << " ns RTT" << std::endl;
+}
+
 int main(int argc, char *argv[]) {
   (void)argc, (void)argv;
 
@@ -67,125 +123,75 @@ int main(int argc, char *argv[]) {
 
   {
     SPSCQueue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        while (!q.front())
-          ;
-        if (*q.front() != i) {
-          throw std::runtime_error("");
-        }
-        q.pop();
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q.emplace(static_cast<int>(i));
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          while (!q.front())
+            ;
+          if (*q.front() != i) {
+            throw std::runtime_error("");
+          }
+          q.pop();
+        },
+        [&](int64_t i) { q.emplace(static_cast<int>(i)); });
   }
 
   {
     SPSCQueue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        while (!q1.front())
-          ;
-        q2.emplace(*q1.front());
-        q1.pop();
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q1.emplace(static_cast<int>(i));
-      while (!q2.front())
-        ;
-      q2.pop();
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          while (!q1.front())
+            ;
+          q2.emplace(*q1.front());
+          q1.pop();
+        },
+        [&](int64_t i) {
+          q1.emplace(static_cast<int>(i));
+          while (!q2.front())
+            ;
+          q2.pop();
+        });
   }
 
 #if __has_include(<boost/lockfree/spsc_queue.hpp> )
   std::cout << "boost::lockfree::spsc:" << std::endl;
   {
     boost::lockfree::spsc_queue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q.pop(val))
-          ;
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q.push(static_cast<int>(i)))
-        ;
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          int val;
+          while (!q.pop(val))
+            ;
+          if (val != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) {
+          while (!q.push(static_cast<int>(i)))
+            ;
+        });
   }
 
   {
     boost::lockfree::spsc_queue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q1.pop(val))
-          ;
-        while (!q2.push(val))
-          ;
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q1.push(static_cast<int>(i)))
-        ;
-      int val;
-      while (!q2.pop(val))
-        ;
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          int val;
+          while (!q1.pop(val))
+            ;
+          while (!q2.push(val))
+            ;
+        },
+        [&](int64_t i) {
+          while (!q1.push(static_cast<int>(i)))
+            ;
+          int val;
+          while (!q2.pop(val))
+            ;
+        });
   }
 #endif
 
@@ -194,63 +200,39 @@ int main(int argc, char *argv[]) {
 
   {
     folly::ProducerConsumerQueue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q.read(val))
-          ;
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q.write(i))
-        ;
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          int val;
+          while (!q.read(val))
+            ;
+          if (val != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) {
+          while (!q.write(static_cast<int>(i)))
+            ;
+        });
   }
 
   {
     folly::ProducerConsumerQueue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q1.read(val))
-          ;
-        q2.write(val);
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q1.write(i))
-        ;
-      int val;
-      while (!q2.read(val))
-        ;
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          int val;
+          while (!q1.read(val))
+            ;
+          q2.write(val);
+        },
+        [&](int64_t i) {
+          while (!q1.write(static_cast<int>(i)))
+            ;
+          int val;
+          while (!q2.read(val))
+            ;
+        });
   }
 #endif
 
@@ -259,58 +241,32 @@ int main(int argc, char *argv[]) {
 
   {
     MPMCQueue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        q.pop(val);
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q.push(static_cast<int>(i));
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          int val;
+          q.pop(val);
+          if (val != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) { q.push(static_cast<int>(i)); });
   }
 
   {
     MPMCQueue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        q1.pop(val);
-        q2.push(val);
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q1.push(static_cast<int>(i));
-      int val;
-      q2.pop(val);
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          int val;
+          q1.pop(val);
+          q2.push(val);
+        },
+        [&](int64_t i) {
+          q1.push(static_cast<int>(i));
+          int val;
+          q2.pop(val);
+        });
   }
 #endif
 
@@ -320,63 +276,39 @@ int main(int argc, char *argv[]) {
 
   {
     moodycamel::ReaderWriterQueue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q.try_dequeue(val))
-          ;
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q.try_enqueue(static_cast<int>(i)))
-        ;
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          int val;
+          while (!q.try_dequeue(val))
+            ;
+          if (val != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) {
+          while (!q.try_enqueue(static_cast<int>(i)))
+            ;
+        });
   }
 
   {
     moodycamel::ReaderWriterQueue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        while (!q1.try_dequeue(val))
-          ;
-        q2.enqueue(val);
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      while (!q1.try_enqueue(static_cast<int>(i)))
-        ;
-      int val;
-      while (!q2.try_dequeue(val))
-        ;
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          int val;
+          while (!q1.try_dequeue(val))
+            ;
+          q2.enqueue(val);
+        },
+        [&](int64_t i) {
+          while (!q1.try_enqueue(static_cast<int>(i)))
+            ;
+          int val;
+          while (!q2.try_dequeue(val))
+            ;
+        });
   }
 #endif
 
@@ -385,58 +317,32 @@ int main(int argc, char *argv[]) {
 
   {
     dro::SPSCQueue<int> q(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        q.pop(val);
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q.emplace(static_cast<int>(i));
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          int val;
+          q.pop(val);
+          if (val != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) { q.emplace(static_cast<int>(i)); });
   }
 
   {
     dro::SPSCQueue<int> q1(queueSize), q2(queueSize);
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val;
-        q1.pop(val);
-        q2.emplace(val);
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q1.emplace(static_cast<int>(i));
-      int val;
-      q2.pop(val);
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters,
+        [&] {
+          int val;
+          q1.pop(val);
+          q2.emplace(val);
+        },
+        [&](int64_t i) {
+          q1.emplace(static_cast<int>(i));
+          int val;
+          q2.pop(val);
+        });
   }
 #endif
 
@@ -446,56 +352,26 @@ int main(int argc, char *argv[]) {
   {
     atomic_queue::AtomicQueueB<int, std::allocator<int>, -1, true, false, true>
         q(static_cast<unsigned>(queueSize));
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val = q.pop();
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q.push(static_cast<int>(i));
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          if (q.pop() != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) { q.push(static_cast<int>(i)); });
   }
 
   {
     atomic_queue::AtomicQueueB<int, std::allocator<int>, -1, true, false, true>
         q1(static_cast<unsigned>(queueSize)),
         q2(static_cast<unsigned>(queueSize));
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        q2.push(q1.pop());
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q1.push(static_cast<int>(i));
-      (void)q2.pop();
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters, [&] { q2.push(q1.pop()); },
+        [&](int64_t i) {
+          q1.push(static_cast<int>(i));
+          (void)q2.pop();
+        });
   }
 
   std::cout << "atomic_queue::AtomicQueueB2 (SPSC):" << std::endl;
@@ -503,56 +379,26 @@ int main(int argc, char *argv[]) {
   {
     atomic_queue::AtomicQueueB2<int, std::allocator<int>, true, false, true> q(
         static_cast<unsigned>(queueSize));
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        int val = q.pop();
-        if (val != i) {
-          throw std::runtime_error("");
-        }
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q.push(static_cast<int>(i));
-    }
-    t.join();
-    auto stop = std::chrono::steady_clock::now();
-    std::cout << iters * 1000000 /
-                     std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                          start)
-                         .count()
-              << " ops/ms" << std::endl;
+    benchThroughput(
+        cpu1, cpu2, iters,
+        [&](int64_t i) {
+          if (q.pop() != i) {
+            throw std::runtime_error("");
+          }
+        },
+        [&](int64_t i) { q.push(static_cast<int>(i)); });
   }
 
   {
     atomic_queue::AtomicQueueB2<int, std::allocator<int>, true, false, true>
         q1(static_cast<unsigned>(queueSize)),
         q2(static_cast<unsigned>(queueSize));
-    auto t = std::thread([&] {
-      pinThread(cpu1);
-      for (int64_t i = 0; i < iters; ++i) {
-        q2.push(q1.pop());
-      }
-    });
-
-    pinThread(cpu2);
-
-    auto start = std::chrono::steady_clock::now();
-    for (int64_t i = 0; i < iters; ++i) {
-      q1.push(static_cast<int>(i));
-      (void)q2.pop();
-    }
-    auto stop = std::chrono::steady_clock::now();
-    t.join();
-    std::cout << std::chrono::duration_cast<std::chrono::nanoseconds>(stop -
-                                                                      start)
-                         .count() /
-                     iters
-              << " ns RTT" << std::endl;
+    benchRTT(
+        cpu1, cpu2, iters, [&] { q2.push(q1.pop()); },
+        [&](int64_t i) {
+          q1.push(static_cast<int>(i));
+          (void)q2.pop();
+        });
   }
 #endif
 
