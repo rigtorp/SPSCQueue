@@ -278,7 +278,7 @@ static void testTypeCategories() {
   // Small (sizeof == 1) and large (sizeof > kFalseSharingRange) element types
   {
     SPSCQueue<uint8_t> smallQ(3);
-    CHECK(smallQ.try_push(42));
+    CHECK(smallQ.try_push(uint8_t{42}));
     CHECK(*smallQ.front() == 42);
     smallQ.pop();
 
