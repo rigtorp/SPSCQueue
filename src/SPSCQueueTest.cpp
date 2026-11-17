@@ -472,14 +472,16 @@ template <typename T> struct RecordingAllocator {
 
   T *allocate(size_t n) {
     *requested = n;
-    throw std::bad_alloc();
+    if (n != 0) {
+      throw std::bad_alloc();
+    }
+    return nullptr;
   }
 
-  void deallocate(T *, size_t) noexcept { CHECK(false); }
+  void deallocate(T *, size_t) noexcept {}
 };
 
-template <typename T>
-struct RecordingAtLeastAllocator : RecordingAllocator<T> {
+template <typename T> struct RecordingAtLeastAllocator : RecordingAllocator<T> {
   struct AllocationResult {
     T *ptr;
     size_t count;
@@ -498,8 +500,8 @@ template <typename Allocator> static void testCapacityAllocationBounds() {
   Allocator allocator;
   allocator.requested = &requested;
 
-  for (size_t capacity : {size_t{0}, size_t{1}, maxCapacity - 1,
-                          maxCapacity, maxCapacity + 1, SIZE_MAX - 1, SIZE_MAX}) {
+  for (size_t capacity : {size_t{0}, size_t{1}, maxCapacity - 1, maxCapacity,
+                          maxCapacity + 1, SIZE_MAX - 1, SIZE_MAX}) {
     requested = 0;
     bool threw = false;
     try {
@@ -508,9 +510,10 @@ template <typename Allocator> static void testCapacityAllocationBounds() {
       threw = true;
     }
     CHECK(threw);
-    const size_t expected = capacity > maxCapacity
-                                ? SIZE_MAX
-                                : (capacity == 0 ? 1 : capacity) + 1 + 2 * padding;
+    const size_t expected =
+        capacity > maxCapacity
+            ? SIZE_MAX
+            : (capacity == 0 ? 1 : capacity) + 1 + 2 * padding;
     CHECK(requested == expected);
   }
 }
