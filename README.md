@@ -217,52 +217,20 @@ References:
 
 ## Testing
 
-Testing lock-free algorithms is hard. I'm using two approaches to test
-the implementation:
+Testing lock-free algorithms is hard. This repository combines several
+verification layers:
 
-- A single threaded test that the functionality works as intended,
-  including that the item constructor and destructor is invoked
-  correctly.
+- A single-threaded test verifies functionality, edge cases, and that item
+  constructors and destructors are invoked correctly.
 - A multi-threaded fuzz test verifies that all items are enqueued and dequeued
   correctly under heavy contention.
-
-### Bounded weak-memory verification
-
-The optional [GenMC](https://github.com/MPI-SWS/genmc) harness includes the actual
-queue header and checks one producer and one consumer under RC11. From the
-repository root, use the pinned Nix environment (Linux):
-
-```sh
-nix develop path:./verification/genmc --command python3 verification/genmc/run.py
-```
-
-The default checks use capacities 1, 2, and 3. A sequential fill/drain first
-checks full/empty behavior and positions both indices at the last ring index.
-The concurrent phase then transfers respectively 3, 4, and 5 elements, crossing
-two wrap boundaries. This scenario assumes each enqueue/dequeue attempt succeeds;
-executions where an attempt fails are blocked, rather than retried. A second
-scenario makes the same number of attempts without these assumptions, retaining
-full/empty failures and checking any remaining elements after joining the threads.
-Both scenarios assert FIFO order, two-word payload publication, and final
-emptiness. Payload destruction writes to the slot to exercise synchronization
-before reuse. GenMC also checks for races on non-atomic storage.
-
-The runner checks temporary copies of the header with either the publication
-or reclamation release stores weakened to relaxed. Publication must be rejected
-for an uninitialized read or race, and reclamation for a race or unordered writes;
-compilation errors and timeouts are failures, not successful checks.
-The repository header is never mutated. Logs are written to `build/genmc/`.
-
-These are bounded safety checks, not a proof for arbitrary capacities, element
-types, allocators, or operation counts, and not a proof of progress or general
-linearizability. Concurrent operations exercise `try_emplace`, `front`, and `pop`;
-they do not cover every API overload. Loops are bounded to 32 iterations at the
-LLVM IR level; the runner requires at least one complete execution per positive
-check. It uses GenMC's thread API, ordinary `std::atomic` operations, unsized
-deallocation, and libstdc++'s single-thread backend for unrelated standard-library
-internals that GenMC does not model. The queue implementation and its memory
-orders are unchanged. Use `--help` to change capacities, item count, loop bound,
-timeout, or log directory. Nix and GenMC are not required for normal builds.
+- Full Modified Condition/Decision Coverage (MC/DC) is enforced on
+  `include/rigtorp/SPSCQueue.h` via GCC's `-fcondition-coverage` and `gcov`
+  (`cmake --preset coverage && cmake --build --preset coverage && ctest --preset coverage`).
+- Bounded weak-memory verification under RC11 using
+  [GenMC](https://github.com/MPI-SWS/genmc) checks concurrent publication and
+  reclamation ordering (`nix develop path:./verification/genmc --command python3 verification/genmc/run.py`).
+  See [verification/genmc/README.md](verification/genmc/README.md) for details.
 
 ## Comparison
 
