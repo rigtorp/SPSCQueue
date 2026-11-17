@@ -187,6 +187,81 @@ static void testFunctionality() {
   }
 }
 
+// Check overload participation without instantiating operation bodies.
+namespace constraints_test {
+template <typename T>
+concept QueueElement = requires { typename rigtorp::SPSCQueue<T>; };
+template <typename T, typename... Args>
+concept CanEmplace = requires(rigtorp::SPSCQueue<T> &q, Args &&...args) {
+  q.emplace(std::forward<Args>(args)...);
+};
+template <typename T, typename... Args>
+concept CanTryEmplace = requires(rigtorp::SPSCQueue<T> &q, Args &&...args) {
+  q.try_emplace(std::forward<Args>(args)...);
+};
+template <typename T, typename P>
+concept CanPush = requires(rigtorp::SPSCQueue<T> &q, P &&value) {
+  q.push(std::forward<P>(value));
+};
+template <typename T, typename P>
+concept CanTryPush = requires(rigtorp::SPSCQueue<T> &q, P &&value) {
+  q.try_push(std::forward<P>(value));
+};
+template <typename T>
+concept CanTryPop =
+    requires(rigtorp::SPSCQueue<T> &q, T &value) { q.try_pop(value); };
+template <typename T, typename Fn>
+concept CanConsume = requires(rigtorp::SPSCQueue<T> &q, Fn &&fn) {
+  q.try_consume(std::forward<Fn>(fn));
+};
+struct Immovable {
+  explicit Immovable(int) noexcept {}
+  Immovable(const Immovable &) = delete;
+  Immovable(Immovable &&) = delete;
+  Immovable &operator=(const Immovable &) = delete;
+  Immovable &operator=(Immovable &&) = delete;
+  void consume() noexcept {}
+};
+struct CopyOnly {
+  CopyOnly() = default;
+  CopyOnly(const CopyOnly &) = default;
+  CopyOnly(CopyOnly &&) = delete;
+  CopyOnly &operator=(const CopyOnly &) = default;
+  CopyOnly &operator=(CopyOnly &&) = delete;
+};
+struct ThrowingDestructor {
+  ~ThrowingDestructor() noexcept(false) {}
+};
+struct RvalueCallback {
+  void operator()(Immovable &) && noexcept {}
+};
+static_assert(!QueueElement<ThrowingDestructor>);
+static_assert(QueueElement<Immovable>);
+static_assert(CanEmplace<Immovable, int>);
+static_assert(CanTryEmplace<Immovable, int>);
+static_assert(!CanEmplace<Immovable>);
+static_assert(!CanTryEmplace<Immovable>);
+static_assert(!CanEmplace<Immovable, const char *>);
+static_assert(!CanTryEmplace<Immovable, const char *>);
+static_assert(!CanPush<Immovable, const Immovable &>);
+static_assert(!CanTryPush<Immovable, const Immovable &>);
+static_assert(CanPush<CopyOnly, CopyOnly>);
+static_assert(CanTryPush<CopyOnly, CopyOnly>);
+static_assert(CanTryPop<CopyOnly>);
+static_assert(!CanTryPop<Immovable>);
+using MoveOnly = std::unique_ptr<int>;
+static_assert(CanPush<MoveOnly, MoveOnly>);
+static_assert(CanTryPush<MoveOnly, MoveOnly>);
+static_assert(!CanPush<MoveOnly, const MoveOnly &>);
+static_assert(!CanTryPush<MoveOnly, const MoveOnly &>);
+static_assert(CanTryPop<MoveOnly>);
+static_assert(CanConsume<Immovable, decltype(&Immovable::consume)>);
+static_assert(CanConsume<Immovable, RvalueCallback>);
+static_assert(!CanConsume<Immovable, RvalueCallback &>);
+static_assert(!CanConsume<Immovable, int>);
+static_assert(!CanConsume<Immovable, void (*)(int &)>);
+} // namespace constraints_test
+
 static void testTypeCategories() {
   using namespace rigtorp;
 
@@ -547,6 +622,105 @@ static void testDeathPopEmpty() {
 #endif
 }
 
+static void testTryPop() {
+  using namespace rigtorp;
+
+  // Empty, wrap-around, and cached writeIdx update
+  {
+    SPSCQueue<int> q(2);
+    int v = -1;
+    CHECK(!q.try_pop(v));
+    CHECK(v == -1);
+
+    for (int i = 0; i < 6; ++i) {
+      CHECK(q.try_push(i));
+      CHECK(q.try_pop(v));
+      CHECK(v == i);
+      CHECK(!q.try_pop(v));
+    }
+  }
+
+  // Move-only type
+  {
+    SPSCQueue<std::unique_ptr<int>> q(2);
+    q.emplace(std::make_unique<int>(99));
+    std::unique_ptr<int> out;
+    CHECK(q.try_pop(out));
+    CHECK(out && *out == 99);
+    CHECK(!q.try_pop(out));
+  }
+
+  // Copy-only type
+  {
+    struct CopyOnly {
+      int x;
+      explicit CopyOnly(int v) noexcept : x(v) {}
+      CopyOnly(const CopyOnly &) = default;
+      CopyOnly &operator=(const CopyOnly &) = default;
+      CopyOnly(CopyOnly &&) = delete;
+      CopyOnly &operator=(CopyOnly &&) = delete;
+    };
+    SPSCQueue<CopyOnly> q(2);
+    CopyOnly in(7);
+    q.push(in);
+    CopyOnly out(0);
+    CHECK(q.try_pop(out));
+    CHECK(out.x == 7);
+    CHECK(!q.try_pop(out));
+  }
+
+  // Member-function callbacks use the same invocation rules as callable
+  // objects.
+  {
+    struct Item {
+      int *calls;
+      void consume() noexcept { ++*calls; }
+      void fail() { throw std::runtime_error("callback failed"); }
+    };
+    SPSCQueue<Item> q(1);
+    static_assert(noexcept(q.try_consume(&Item::consume)));
+    static_assert(!noexcept(q.try_consume(&Item::fail)));
+    int calls = 0;
+    CHECK(!q.try_consume(&Item::consume));
+    q.emplace(&calls);
+    try {
+      (void)q.try_consume(&Item::fail);
+      CHECK(false);
+    } catch (const std::runtime_error &) {
+      CHECK(q.front() != nullptr);
+    }
+    CHECK(q.try_consume(&Item::consume));
+    CHECK(calls == 1);
+    CHECK(q.empty());
+  }
+
+  // try_consume with immovable and move-only types
+  {
+    struct Immovable {
+      int x;
+      explicit Immovable(int v) noexcept : x(v) {}
+      Immovable(const Immovable &) = delete;
+      Immovable &operator=(const Immovable &) = delete;
+      Immovable(Immovable &&) = delete;
+      Immovable &operator=(Immovable &&) = delete;
+    };
+    SPSCQueue<Immovable> q(2);
+    int observed = 0;
+    CHECK(!q.try_consume([&](Immovable &v) { observed = v.x; }));
+    q.emplace(123);
+    CHECK(q.try_consume([&](Immovable &v) { observed = v.x; }));
+    CHECK(observed == 123);
+    CHECK(q.empty());
+
+    SPSCQueue<std::unique_ptr<int>> mq(2);
+    mq.emplace(std::make_unique<int>(456));
+    std::unique_ptr<int> out;
+    CHECK(mq.try_consume([&](std::unique_ptr<int> &p) { out = std::move(p); }));
+    CHECK(out && *out == 456);
+    CHECK(mq.empty());
+  }
+}
+
 int main(int argc, char *argv[]) {
   (void)argc, (void)argv;
 
@@ -556,6 +730,7 @@ int main(int argc, char *argv[]) {
   testCustomAllocator();
   testCapacityBounds();
   testDeathPopEmpty();
+  testTryPop();
   testConcurrency();
 
   return 0;

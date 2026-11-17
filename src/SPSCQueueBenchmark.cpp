@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <rigtorp/SPSCQueue.h>
 #include <stdexcept>
@@ -22,10 +24,12 @@ void pinThread(int cpu) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   CPU_SET(static_cast<size_t>(cpu), &cpuset);
-  if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) ==
-      -1) {
-    perror("pthread_setaffinity_np");
-    exit(1);
+  const int error =
+      pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+  if (error != 0) {
+    std::cerr << "pthread_setaffinity_np: " << std::strerror(error)
+              << std::endl;
+    std::exit(EXIT_FAILURE);
   }
 }
 

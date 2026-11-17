@@ -32,7 +32,7 @@ def main():
     def check(label, include, capacity, items, expected_error=None, completed=True):
         command = [
             args.genmc, "-rc11", "-disable-mm-detector", "-disable-estimation",
-            f"-unroll={args.unroll}", "--", "-std=c++17", "-fno-sized-deallocation",
+            f"-unroll={args.unroll}", "--", "-std=c++20", "-fno-sized-deallocation",
             "-D_GLIBCXX_GCC_GTHR_H", "-include", "bits/gthr-single.h",
             f"-I{include}", f"-DQUEUE_CAPACITY={capacity}", f"-DQUEUE_ITEMS={items}",
             f"-DQUEUE_COMPLETED_TRANSFERS={int(completed)}",
@@ -75,9 +75,9 @@ def main():
     mutations = [
         ("relaxed-publication", "writeIdx_.store(nextWriteIdx, std::memory_order_release)", 2,
          "memory_order_release", r"Non-atomic race|Attempt to read from uninitialized memory"),
-        ("relaxed-reclamation", "readIdx_.store(nextReadIdx, std::memory_order_release)", 1,
+        ("relaxed-reclamation", "readIdx_.store(nextReadIdx, std::memory_order_release)", 2,
          "memory_order_release", r"Non-atomic race|Unordered writes"),
-        ("relaxed-acquire-consumer", "writeIdxCache_ = writeIdx_.load(std::memory_order_acquire)", 1,
+        ("relaxed-acquire-consumer", "writeIdxCache_ = writeIdx_.load(std::memory_order_acquire)", 2,
          "memory_order_acquire", r"Non-atomic race|Attempt to read from uninitialized memory"),
         ("relaxed-acquire-producer", "readIdxCache_ = readIdx_.load(std::memory_order_acquire)", 2,
          "memory_order_acquire", r"Non-atomic race|Unordered writes"),

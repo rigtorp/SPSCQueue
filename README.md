@@ -1,85 +1,125 @@
 # SPSCQueue.h
 
-A single producer single consumer wait-free and lock-free fixed size queue
-written in C++20. This implementation is faster than both
+A single-producer single-consumer queue written in C++20. It has a fixed capacity
+and supports wait-free operations.
+
+In the benchmarks below, it is faster than both
 [*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html)
 and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md).
 
 ## Example
 
+The producer sends 100 integers. The consumer adds them and prints `5050`:
+
 ```cpp
-SPSCQueue<int> q(1);
-auto t = std::thread([&] {
-  while (!q.front());
-  std::cout << *q.front() << std::endl;
-  q.pop();
+rigtorp::SPSCQueue<int> queue(16);
+constexpr int count = 100;
+
+auto consumer = std::thread([&] {
+  int sum = 0;
+  for (int i = 0; i < count; ++i) {
+    int value;
+    while (!queue.try_pop(value)) {
+      std::this_thread::yield();
+    }
+    sum += value;
+  }
+  std::cout << sum << '\n';
 });
-q.push(1);
-t.join();
+
+for (int i = 1; i <= count; ++i) {
+  queue.push(i);
+}
+
+consumer.join();
 ```
 
-See `src/SPSCQueueExample.cpp` for the full example.
+See [SPSCQueueExample.cpp](src/SPSCQueueExample.cpp) for the full example.
+
+Use `try_consume` to process an item in place, without copying or moving it:
+
+```cpp
+SPSCQueue<int> q(1);
+q.push(42);
+if (q.try_consume([](int &value) { std::cout << value << std::endl; })) {
+  // The item has been destroyed and removed from the queue.
+}
+```
 
 ## Usage
 
-- `SPSCQueue<T>(size_t capacity);`
+Use one producer thread to add items and one consumer thread to remove them.
+These threads can run at the same time. Stop all access before you destroy the
+queue.
 
-  Create a `SPSCqueue` holding items of type `T` with capacity
-  `capacity`. Capacity needs to be at least 1.
+`T` must have a destructor that does not throw. The queue cannot be copied or
+moved. C++20 constraints reject operations that the element type does not support.
 
-- `void emplace(Args &&... args);`
+- `SPSCQueue<T, Allocator>(capacity, allocator)`
 
-  Enqueue an item using inplace construction. Blocks if queue is full.
+  Allocate storage. The allocator argument is optional. Zero capacity becomes one.
 
-- `bool try_emplace(Args &&... args);`
+- `emplace(args...)`
 
-  Try to enqueue an item using inplace construction. Returns `true` on
-  success and `false` if queue is full.
+  Construct an item in place. Spin while full.
 
-- `void push(const T &v);`
+- `push(value)`
 
-  Enqueue an item using copy construction. Blocks if queue is full.
+  Copy or move an item into the queue. Spin while full.
 
-- `template <typename P> void push(P &&v);`
+- `try_emplace(args...)`, `try_push(value)`
 
-  Enqueue an item using move construction. Participates in overload
-  resolution only if `std::is_constructible<T, P&&>::value == true`.
-  Blocks if queue is full.
+  Add an item. Return `false` if full, without copying or moving the arguments.
 
-- `bool try_push(const T &v);`
+- `try_pop(value)`
 
-  Try to enqueue an item using copy construction. Returns `true` on
-  success and `false` if queue is full.
+  Assign the front item to `value`, then remove it. Return `false` if empty;
+  leave `value` unchanged.
 
-- `template <typename P> bool try_push(P &&v);`
+- `try_consume(fn)`
 
-  Try to enqueue an item using move construction. Returns `true` on
-  success and `false` if queue is full. Participates in overload
-  resolution only if `std::is_constructible<T, P&&>::value == true`.
+  Call `fn` with a reference to the front item, then remove it. Return `false`
+  if empty; do not call `fn`.
 
-- `T *front();`
+- `front()`
 
-  Return pointer to front of queue. Returns `nullptr` if queue is
-  empty.
+  Return a pointer to the front item, or `nullptr` if empty.
 
-- `void pop();`
+- `pop()`
 
-  Dequeue first item of queue. You must ensure that the queue is non-empty
-  before calling pop. This means that `front()` must have returned a
-  non-`nullptr` before each call to `pop()`. Requires
-  `std::is_nothrow_destructible<T>::value == true`.
+  Remove the front item. First call `front()` and check for a non-null pointer.
 
-- `size_t size();`
+- `size()`, `empty()`
 
-  Return the number of items available in the queue.
+  Read the queue state from any thread. Results can become stale during
+  concurrent use. Frequent polling reduces queue performance.
 
-- `bool empty();`
+- `capacity()`
 
-  Return true if queue is currently empty.
+  Return the actual capacity. This value does not change.
 
-Only a single writer thread can perform enqueue operations and only a
-single reader thread can perform dequeue operations. Any other usage
-is invalid.
+Successful `try_` operations return `true`. They do not wait for data or space.
+`try_pop` uses move assignment if available, or copy assignment otherwise.
+`try_consume` supports items that cannot be copied or moved.
+
+A pointer from `front()` is valid until that item is removed or the queue is
+destroyed. Do not remove the item between `front()` and `pop()`. A callback must
+not consume from the same queue, destroy it, or use the item after removal.
+
+If construction throws, no item is added. If assignment or a callback throws,
+the item stays in the queue. These operations can still change their arguments
+or the item. Retrying a callback can repeat its effects.
+
+Any thread can call `size()`, `empty()`, or `capacity()` while the queue is alive.
+`size()` and `empty()` do not give a consistent snapshot during concurrent use.
+Use `try_` operations to check whether an item was added or removed.
+
+The allocator controls storage only, not element construction or destruction.
+It can increase capacity through `allocate_at_least`. Excessive requested
+capacities are reduced to leave room for internal storage; allocation can fail.
+
+See [SPSCQueue.h](include/rigtorp/SPSCQueue.h) for full type requirements and
+exception contracts.
 
 ## Huge page support
 
@@ -90,8 +130,8 @@ Allocator
 interface](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p0401r3.html).
 This allows convenient use of [huge
 pages](https://www.kernel.org/doc/html/latest/admin-guide/mm/hugetlbpage.html)
-without wasting any allocated space. Using size feedback is only supported when
-C++17 is enabled.
+without wasting any allocated space. Size feedback is used when the allocator
+provides `allocate_at_least`.
 
 The library currently doesn't include a huge page allocator since the APIs for
 allocating huge pages are platform dependent and handling of huge page size and
