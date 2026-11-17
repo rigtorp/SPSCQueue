@@ -187,6 +187,81 @@ static void testFunctionality() {
   }
 }
 
+// Check overload participation without instantiating operation bodies.
+namespace constraints_test {
+template <typename T>
+concept QueueElement = requires { typename rigtorp::SPSCQueue<T>; };
+template <typename T, typename... Args>
+concept CanEmplace = requires(rigtorp::SPSCQueue<T> &q, Args &&...args) {
+  q.emplace(std::forward<Args>(args)...);
+};
+template <typename T, typename... Args>
+concept CanTryEmplace = requires(rigtorp::SPSCQueue<T> &q, Args &&...args) {
+  q.try_emplace(std::forward<Args>(args)...);
+};
+template <typename T, typename P>
+concept CanPush = requires(rigtorp::SPSCQueue<T> &q, P &&value) {
+  q.push(std::forward<P>(value));
+};
+template <typename T, typename P>
+concept CanTryPush = requires(rigtorp::SPSCQueue<T> &q, P &&value) {
+  q.try_push(std::forward<P>(value));
+};
+template <typename T>
+concept CanTryPop =
+    requires(rigtorp::SPSCQueue<T> &q, T &value) { q.try_pop(value); };
+template <typename T, typename Fn>
+concept CanConsume = requires(rigtorp::SPSCQueue<T> &q, Fn &&fn) {
+  q.try_consume(std::forward<Fn>(fn));
+};
+struct Immovable {
+  explicit Immovable(int) noexcept {}
+  Immovable(const Immovable &) = delete;
+  Immovable(Immovable &&) = delete;
+  Immovable &operator=(const Immovable &) = delete;
+  Immovable &operator=(Immovable &&) = delete;
+  void consume() noexcept {}
+};
+struct CopyOnly {
+  CopyOnly() = default;
+  CopyOnly(const CopyOnly &) = default;
+  CopyOnly(CopyOnly &&) = delete;
+  CopyOnly &operator=(const CopyOnly &) = default;
+  CopyOnly &operator=(CopyOnly &&) = delete;
+};
+struct ThrowingDestructor {
+  ~ThrowingDestructor() noexcept(false) {}
+};
+struct RvalueCallback {
+  void operator()(Immovable &) && noexcept {}
+};
+static_assert(!QueueElement<ThrowingDestructor>);
+static_assert(QueueElement<Immovable>);
+static_assert(CanEmplace<Immovable, int>);
+static_assert(CanTryEmplace<Immovable, int>);
+static_assert(!CanEmplace<Immovable>);
+static_assert(!CanTryEmplace<Immovable>);
+static_assert(!CanEmplace<Immovable, const char *>);
+static_assert(!CanTryEmplace<Immovable, const char *>);
+static_assert(!CanPush<Immovable, const Immovable &>);
+static_assert(!CanTryPush<Immovable, const Immovable &>);
+static_assert(CanPush<CopyOnly, CopyOnly>);
+static_assert(CanTryPush<CopyOnly, CopyOnly>);
+static_assert(CanTryPop<CopyOnly>);
+static_assert(!CanTryPop<Immovable>);
+using MoveOnly = std::unique_ptr<int>;
+static_assert(CanPush<MoveOnly, MoveOnly>);
+static_assert(CanTryPush<MoveOnly, MoveOnly>);
+static_assert(!CanPush<MoveOnly, const MoveOnly &>);
+static_assert(!CanTryPush<MoveOnly, const MoveOnly &>);
+static_assert(CanTryPop<MoveOnly>);
+static_assert(CanConsume<Immovable, decltype(&Immovable::consume)>);
+static_assert(CanConsume<Immovable, RvalueCallback>);
+static_assert(!CanConsume<Immovable, RvalueCallback &>);
+static_assert(!CanConsume<Immovable, int>);
+static_assert(!CanConsume<Immovable, void (*)(int &)>);
+} // namespace constraints_test
+
 static void testTypeCategories() {
   using namespace rigtorp;
 
@@ -594,6 +669,31 @@ static void testTryPop() {
     CHECK(!q.try_pop(out));
   }
 
+  // Member-function callbacks use the same invocation rules as callable
+  // objects.
+  {
+    struct Item {
+      int *calls;
+      void consume() noexcept { ++*calls; }
+      void fail() { throw std::runtime_error("callback failed"); }
+    };
+    SPSCQueue<Item> q(1);
+    static_assert(noexcept(q.try_consume(&Item::consume)));
+    static_assert(!noexcept(q.try_consume(&Item::fail)));
+    int calls = 0;
+    CHECK(!q.try_consume(&Item::consume));
+    q.emplace(&calls);
+    try {
+      (void)q.try_consume(&Item::fail);
+      CHECK(false);
+    } catch (const std::runtime_error &) {
+      CHECK(q.front() != nullptr);
+    }
+    CHECK(q.try_consume(&Item::consume));
+    CHECK(calls == 1);
+    CHECK(q.empty());
+  }
+
   // try_consume with immovable and move-only types
   {
     struct Immovable {
@@ -615,8 +715,7 @@ static void testTryPop() {
     SPSCQueue<std::unique_ptr<int>> mq(2);
     mq.emplace(std::make_unique<int>(456));
     std::unique_ptr<int> out;
-    CHECK(mq.try_consume(
-        [&](std::unique_ptr<int> &p) { out = std::move(p); }));
+    CHECK(mq.try_consume([&](std::unique_ptr<int> &p) { out = std::move(p); }));
     CHECK(out && *out == 456);
     CHECK(mq.empty());
   }

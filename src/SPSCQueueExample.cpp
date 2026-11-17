@@ -5,20 +5,27 @@
 #include <rigtorp/SPSCQueue.h>
 #include <thread>
 
-int main(int argc, char *argv[]) {
-  (void)argc, (void)argv;
+int main() {
+  rigtorp::SPSCQueue<int> queue(16);
+  constexpr int count = 100;
 
-  using namespace rigtorp;
-
-  SPSCQueue<int> q(1);
-  auto t = std::thread([&] {
-    while (!q.front())
-      ;
-    std::cout << *q.front() << std::endl;
-    q.pop();
+  auto consumer = std::thread([&] {
+    int sum = 0;
+    for (int i = 0; i < count; ++i) {
+      int value;
+      while (!queue.try_pop(value)) {
+        std::this_thread::yield();
+      }
+      sum += value;
+    }
+    std::cout << sum << '\n';
   });
-  q.push(1);
-  t.join();
+
+  for (int i = 1; i <= count; ++i) {
+    queue.push(i);
+  }
+
+  consumer.join();
 
   return 0;
 }
