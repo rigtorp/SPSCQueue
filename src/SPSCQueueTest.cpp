@@ -166,9 +166,9 @@ static void testFunctionality() {
   }
   CHECK(TestType::constructed.size() == 0);
 
-  // Minimal capacity == 1 across multiple wraparounds
-  {
-    SPSCQueue<int> q(1);
+  // Zero and one both give minimal capacity across multiple wraparounds
+  for (size_t capacity : {size_t{0}, size_t{1}}) {
+    SPSCQueue<int> q(capacity);
     CHECK(q.capacity() == 1);
     for (int i = 0; i < 5; ++i) {
       CHECK(q.empty());
@@ -465,6 +465,59 @@ static void testCustomAllocator() {
   CHECK(oversizeState.deallocated == oversizeState.allocated);
 }
 
+// Adapted from PR #51: inspect allocation arithmetic without large allocations.
+template <typename T> struct RecordingAllocator {
+  using value_type = T;
+  size_t *requested;
+
+  T *allocate(size_t n) {
+    *requested = n;
+    if (n != 0) {
+      throw std::bad_alloc();
+    }
+    return nullptr;
+  }
+
+  void deallocate(T *, size_t) noexcept {}
+};
+
+template <typename T> struct RecordingAtLeastAllocator : RecordingAllocator<T> {
+  struct AllocationResult {
+    T *ptr;
+    size_t count;
+  };
+
+  AllocationResult allocate_at_least(size_t n) {
+    return {this->allocate(n), n};
+  }
+};
+
+template <typename Allocator> static void testCapacityAllocationBounds() {
+  // For char, each end needs one false-sharing range of padding.
+  const size_t padding = alignof(rigtorp::SPSCQueue<char>);
+  const size_t maxCapacity = SIZE_MAX - 2 * padding - 1;
+  size_t requested = 0;
+  Allocator allocator;
+  allocator.requested = &requested;
+
+  for (size_t capacity : {size_t{0}, size_t{1}, maxCapacity - 1, maxCapacity,
+                          maxCapacity + 1, SIZE_MAX - 1, SIZE_MAX}) {
+    requested = 0;
+    bool threw = false;
+    try {
+      rigtorp::SPSCQueue<char, Allocator> q(capacity, allocator);
+    } catch (const std::bad_alloc &) {
+      threw = true;
+    }
+    CHECK(threw);
+    const size_t expected =
+        capacity > maxCapacity
+            ? SIZE_MAX
+            : (capacity == 0 ? 1 : capacity) + 1 + 2 * padding;
+    CHECK(requested == expected);
+  }
+}
+
 static void testCapacityBounds() {
   using namespace rigtorp;
 
@@ -729,6 +782,8 @@ int main(int argc, char *argv[]) {
   testExceptionSafety();
   testCustomAllocator();
   testCapacityBounds();
+  testCapacityAllocationBounds<RecordingAllocator<char>>();
+  testCapacityAllocationBounds<RecordingAtLeastAllocator<char>>();
   testDeathPopEmpty();
   testTryPop();
   testConcurrency();
