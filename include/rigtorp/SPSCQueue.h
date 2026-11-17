@@ -302,8 +302,12 @@ private:
   static constexpr size_t kFalseSharingRange = 64;
 #endif
 
-  // Padding to avoid false sharing between slots_ and adjacent allocations
-  static constexpr size_t kPadding = (kFalseSharingRange - 1) / sizeof(T) + 1;
+  // Aligned elements already put both allocation boundaries on separate
+  // false-sharing ranges. Otherwise pad both ends against adjacent allocations.
+  static constexpr size_t kPadding =
+      alignof(T) >= kFalseSharingRange
+          ? 0
+          : (kFalseSharingRange - 1) / sizeof(T) + 1;
 
 private:
   size_t capacity_;
