@@ -85,7 +85,7 @@ template <typename T> struct TrackingAllocator {
   T *allocate(size_t n) {
     ++state->allocations;
     state->lastCount = n;
-    state->lastPtr = static_cast<T *>(::operator new(n * sizeof(T)));
+    state->lastPtr = std::allocator<T>{}.allocate(n);
     return state->lastPtr;
   }
 
@@ -93,7 +93,7 @@ template <typename T> struct TrackingAllocator {
     CHECK(p == state->lastPtr);
     CHECK(n == state->lastCount);
     ++state->deallocations;
-    ::operator delete(p);
+    std::allocator<T>{}.deallocate(p, n);
   }
 };
 
@@ -492,9 +492,11 @@ template <typename T> struct RecordingAtLeastAllocator : RecordingAllocator<T> {
   }
 };
 
-template <typename Allocator> static void testCapacityAllocationBounds() {
-  // For char, each end needs one false-sharing range of padding.
-  const size_t padding = alignof(rigtorp::SPSCQueue<char>);
+// By default test char, which needs one false-sharing range at each end.
+template <typename Allocator>
+static void testCapacityAllocationBounds(
+    size_t padding = alignof(rigtorp::SPSCQueue<char>)) {
+  using T = typename Allocator::value_type;
   const size_t maxCapacity = SIZE_MAX - 2 * padding - 1;
   size_t requested = 0;
   Allocator allocator;
@@ -505,7 +507,7 @@ template <typename Allocator> static void testCapacityAllocationBounds() {
     requested = 0;
     bool threw = false;
     try {
-      rigtorp::SPSCQueue<char, Allocator> q(capacity, allocator);
+      rigtorp::SPSCQueue<T, Allocator> q(capacity, allocator);
     } catch (const std::bad_alloc &) {
       threw = true;
     }
@@ -516,6 +518,61 @@ template <typename Allocator> static void testCapacityAllocationBounds() {
             : (capacity == 0 ? 1 : capacity) + 1 + 2 * padding;
     CHECK(requested == expected);
   }
+}
+
+static void testAlignedElementPadding() {
+  constexpr size_t range = alignof(rigtorp::SPSCQueue<char>);
+  struct alignas(range) Aligned {
+    explicit Aligned(int v = 0) : value(v) {}
+    int value;
+  };
+  struct alignas(2 * range) OverAligned {
+    explicit OverAligned(int v = 0) : value(v) {}
+    int value;
+  };
+  struct Unaligned {
+    explicit Unaligned(int v = 0) : value(v) {}
+    int value;
+    char bytes[range - sizeof(int)]{};
+  };
+  static_assert(sizeof(Unaligned) == range);
+  static_assert(alignof(Unaligned) < range);
+
+  auto check = []<typename T>(size_t padding) {
+    testCapacityAllocationBounds<RecordingAllocator<T>>(padding);
+    testCapacityAllocationBounds<RecordingAtLeastAllocator<T>>(padding);
+    for (size_t capacity : {size_t{0}, size_t{1}, size_t{3}}) {
+      typename TrackingAllocator<T>::State state;
+      {
+        rigtorp::SPSCQueue<T, TrackingAllocator<T>> q(
+            capacity, TrackingAllocator<T>(&state));
+        const size_t actual = capacity == 0 ? 1 : capacity;
+        CHECK(q.capacity() == actual);
+        CHECK(state.lastCount == actual + 1 + 2 * padding);
+        for (int cycle = 0; cycle < 3; ++cycle) {
+          for (size_t i = 0; i < actual; ++i) {
+            CHECK(q.try_emplace(static_cast<int>(i)));
+          }
+          CHECK(!q.try_emplace());
+          CHECK(q.front() != nullptr);
+          CHECK(reinterpret_cast<uintptr_t>(q.front()) % alignof(T) == 0);
+          for (size_t i = 0; i < actual; ++i) {
+            CHECK(q.front() != nullptr);
+            CHECK(q.front()->value == static_cast<int>(i));
+            q.pop();
+          }
+          CHECK(q.front() == nullptr);
+        }
+        q.emplace(); // Exercise destruction of a non-empty queue.
+      }
+      CHECK(state.allocations == 1);
+      CHECK(state.deallocations == 1);
+    }
+  };
+  check.template operator()<Aligned>(0);
+  check.template operator()<OverAligned>(0);
+  // Size alone is insufficient: this type still needs padding at both ends.
+  check.template operator()<Unaligned>(1);
 }
 
 static void testCapacityBounds() {
@@ -782,6 +839,7 @@ int main(int argc, char *argv[]) {
   testExceptionSafety();
   testCustomAllocator();
   testCapacityBounds();
+  testAlignedElementPadding();
   testCapacityAllocationBounds<RecordingAllocator<char>>();
   testCapacityAllocationBounds<RecordingAtLeastAllocator<char>>();
   testDeathPopEmpty();
