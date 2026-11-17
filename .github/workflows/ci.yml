@@ -39,3 +39,31 @@ jobs:
           cmake --preset coverage
           cmake --build --preset coverage
           ctest --preset coverage
+
+  android:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build (Android ${{ matrix.abi }})
+        run: |
+          NDK_TOOLCHAIN="${ANDROID_NDK_HOME:-${ANDROID_NDK_LATEST_HOME}}/build/cmake/android.toolchain.cmake"
+          cmake -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${NDK_TOOLCHAIN}" \
+            -DANDROID_ABI="${{ matrix.abi }}" \
+            -DANDROID_PLATFORM=android-24
+          cmake --build build-android
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build (iOS simulator)
+        run: |
+          cmake -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
+          cmake --build build-ios --config Release
