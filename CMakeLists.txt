@@ -45,6 +45,10 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
 
   if(UNIX AND NOT APPLE)
     spscqueue_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
+    find_library(RTE_RING_LIBRARY rte_ring)
+    if(RTE_RING_LIBRARY)
+      target_link_libraries(SPSCQueueBenchmark PRIVATE ${RTE_RING_LIBRARY})
+    endif()
     spscqueue_executable(SPSCQueueExampleHugepages src/SPSCQueueExampleHugepages.cpp)
   endif()
 
