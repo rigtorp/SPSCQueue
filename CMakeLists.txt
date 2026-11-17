@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24...4.3)
 
 project(SPSCQueue
-  VERSION 2.0.0
+  VERSION 2.0.1
   HOMEPAGE_URL "https://github.com/rigtorp/SPSCQueue"
   LANGUAGES CXX
 )
@@ -43,7 +43,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTING)
     )
   endfunction()
 
-  if(UNIX AND NOT APPLE)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     spscqueue_executable(SPSCQueueBenchmark src/SPSCQueueBenchmark.cpp)
     find_library(RTE_RING_LIBRARY rte_ring)
     if(RTE_RING_LIBRARY)

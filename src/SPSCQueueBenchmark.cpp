@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -15,6 +16,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#if defined(__ANDROID__)
+#include <sched.h>
+#endif
 
 #if __has_include(<boost/lockfree/spsc_queue.hpp> )
 #include <boost/lockfree/spsc_queue.hpp>
@@ -69,6 +74,12 @@ void pinThread(int cpu) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   CPU_SET(static_cast<size_t>(cpu), &cpuset);
+#if defined(__ANDROID__)
+  if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) != 0) {
+    std::cerr << "sched_setaffinity: " << std::strerror(errno) << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
+#else
   const int error =
       pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
   if (error != 0) {
@@ -76,6 +87,7 @@ void pinThread(int cpu) {
               << std::endl;
     std::exit(EXIT_FAILURE);
   }
+#endif
 }
 
 template <typename Consumer, typename Producer>
