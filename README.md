@@ -264,6 +264,19 @@ internals that GenMC does not model. The queue implementation and its memory
 orders are unchanged. Use `--help` to change capacities, item count, loop bound,
 timeout, or log directory. Nix and GenMC are not required for normal builds.
 
+## Comparison
+
+| Queue | Non-default-constructible `T` | Immovable `T` | Zero-copy consumer | Blocking / `try_` APIs | Arbitrary (non-pow2) capacity | Custom allocator (`allocate_at_least`) | Batch API |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **`rigtorp::SPSCQueue`** | Yes | Yes | `front()`/`pop()`, `try_consume()` | Blocking push, `try_` both | Yes | Yes (incl. `allocate_at_least`) | No |
+| `folly::ProducerConsumerQueue` | Yes | Yes | `frontPtr()`/`popFront()` | `try_` only | Yes | No | No |
+| `boost::lockfree::spsc_queue` | No | No | `consume_one()`, `consume_all()` | `try_` only | Yes | Yes | Yes (`push`/`pop` range, `consume_all`) |
+| `moodycamel::ReaderWriterQueue` | Yes (`emplace`/`peek`/`pop`) | Yes (`emplace`/`peek`/`pop`) | `peek()`/`pop()` | Allocates or `try_` (`Blocking*` adds wait) | Rounded up (blocks) | No | No |
+| `dro::SPSCQueue` | No | No | No | Both | Yes | Yes | No |
+| `atomic_queue::AtomicQueueB` | No (lock-free atomic + `NIL`) | No | No | Both | Rounded up to pow2 | Yes | No |
+| `atomic_queue::AtomicQueueB2` | No | No | No | Both | Rounded up to pow2 | Yes | No |
+| `DPDK rte_ring` (`SP/SC`) | No (C `void*` / 4B POD) | No | No | `try_` only | Rounded up to pow2 | Memzone / `rte_ring_init` | Yes (`*_bulk`, `*_burst`) |
+
 ## Benchmarks
 
 Throughput benchmark measures throughput between 2 threads for a queue of `int`
