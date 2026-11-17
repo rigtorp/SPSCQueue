@@ -15,10 +15,14 @@
 
 // Force-inline hot producer/consumer paths so compilers do not outline them
 // when a translation unit hits per-TU inlining limits across many call sites.
+#if defined(__OPTIMIZE__)
 #if defined(__GNUC__) || defined(__clang__)
 #define RIGTORP_SPSCQUEUE_INLINE [[gnu::always_inline]] inline
 #elif defined(_MSC_VER)
 #define RIGTORP_SPSCQUEUE_INLINE __forceinline
+#else
+#define RIGTORP_SPSCQUEUE_INLINE inline
+#endif
 #else
 #define RIGTORP_SPSCQUEUE_INLINE inline
 #endif
@@ -72,10 +76,10 @@ public:
 
     if constexpr (requires {
                     writer_.allocator.allocate_at_least(writer_.capacity +
-                                                           2 * kPadding);
-                  }) {
-      auto res = writer_.allocator.allocate_at_least(writer_.capacity +
                                                         2 * kPadding);
+                  }) {
+      auto res =
+          writer_.allocator.allocate_at_least(writer_.capacity + 2 * kPadding);
       writer_.slots = res.ptr;
       writer_.capacity = res.count - 2 * kPadding;
     } else {
@@ -100,8 +104,7 @@ public:
       pop();
     }
     std::allocator_traits<Allocator>::deallocate(
-        writer_.allocator, writer_.slots,
-        writer_.capacity + 2 * kPadding);
+        writer_.allocator, writer_.slots, writer_.capacity + 2 * kPadding);
   }
 
   SPSCQueue(const SPSCQueue &) = delete;
@@ -138,9 +141,8 @@ public:
   /// modified.
   template <typename... Args>
     requires std::is_constructible_v<T, Args &&...>
-  [[nodiscard]] RIGTORP_SPSCQUEUE_INLINE bool
-  try_emplace(Args &&...args) noexcept(
-      std::is_nothrow_constructible_v<T, Args &&...>) {
+  [[nodiscard]] RIGTORP_SPSCQUEUE_INLINE bool try_emplace(
+      Args &&...args) noexcept(std::is_nothrow_constructible_v<T, Args &&...>) {
     auto const writeIdx = writer_.writeIdx;
     auto nextWriteIdx = writeIdx + 1;
     // Keep the common straight-line path hot; wrap-around and cache-miss
