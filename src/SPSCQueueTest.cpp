@@ -703,7 +703,7 @@ static void testConcurrency() {
   }
 }
 
-static void testDeathPopEmpty() {
+static void testDeathPopWithoutFront(bool enqueue) {
 #if (defined(__unix__) || defined(__APPLE__)) && !defined(NDEBUG)
   using namespace rigtorp;
 
@@ -722,13 +722,18 @@ static void testDeathPopEmpty() {
     // coredumpctl / ABRT via default SIGABRT termination.
     std::signal(SIGABRT, [](int) { _exit(42); });
     SPSCQueue<int> q(2);
-    q.pop(); // Must abort in debug builds
+    if (enqueue) {
+      q.push(1);
+    }
+    q.pop(); // Must abort in debug builds without a successful front()
     _exit(0);
   }
 
   int status = 0;
   CHECK(waitpid(pid, &status, 0) == pid);
   CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 42);
+#else
+  (void)enqueue;
 #endif
 }
 
@@ -842,7 +847,8 @@ int main(int argc, char *argv[]) {
   testAlignedElementPadding();
   testCapacityAllocationBounds<RecordingAllocator<char>>();
   testCapacityAllocationBounds<RecordingAtLeastAllocator<char>>();
-  testDeathPopEmpty();
+  testDeathPopWithoutFront(false);
+  testDeathPopWithoutFront(true);
   testTryPop();
   testConcurrency();
 
