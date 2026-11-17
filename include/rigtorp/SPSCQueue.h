@@ -202,7 +202,8 @@ public:
   /// consumed. Calling pop() on an empty queue violates this precondition.
   void pop() noexcept {
     auto const readIdx = readIdx_.load(std::memory_order_relaxed);
-    assert(writeIdx_.load(std::memory_order_acquire) != readIdx &&
+    // A successful front() has already acquired and cached the write index.
+    assert(writeIdxCache_ != readIdx &&
            "Can only call pop() after front() has returned a non-nullptr");
     std::destroy_at(&slots_[readIdx + kPadding]);
     auto nextReadIdx = readIdx + 1;
