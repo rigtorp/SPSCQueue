@@ -150,6 +150,46 @@ public:
     readIdx_.store(nextReadIdx, std::memory_order_release);
   }
 
+  template <typename Fn>
+  [[nodiscard]] bool try_consume(Fn &&fn) noexcept(
+      noexcept(std::forward<Fn>(fn)(std::declval<T &>()))) {
+    static_assert(std::is_nothrow_destructible_v<T>,
+                  "T must be nothrow destructible");
+    static_assert(std::is_invocable_v<Fn &&, T &>,
+                  "Fn must be invocable with T&");
+    auto const readIdx = readIdx_.load(std::memory_order_relaxed);
+    if (readIdx == writeIdxCache_) {
+      writeIdxCache_ = writeIdx_.load(std::memory_order_acquire);
+      if (writeIdxCache_ == readIdx) {
+        return false;
+      }
+    }
+    std::forward<Fn>(fn)(slots_[readIdx + kPadding]);
+    std::destroy_at(&slots_[readIdx + kPadding]);
+    auto nextReadIdx = readIdx + 1;
+    if (nextReadIdx == capacity_) {
+      nextReadIdx = 0;
+    }
+    readIdx_.store(nextReadIdx, std::memory_order_release);
+    return true;
+  }
+
+  [[nodiscard]] bool try_pop(T &v) noexcept(
+      std::is_move_assignable_v<T> ? std::is_nothrow_move_assignable_v<T>
+                                   : std::is_nothrow_copy_assignable_v<T>) {
+    static_assert(std::is_move_assignable_v<T> || std::is_copy_assignable_v<T>,
+                  "T must be move or copy assignable");
+    return try_consume([&v](T &slot) noexcept(
+        std::is_move_assignable_v<T> ? std::is_nothrow_move_assignable_v<T>
+                                     : std::is_nothrow_copy_assignable_v<T>) {
+      if constexpr (std::is_move_assignable_v<T>) {
+        v = std::move(slot);
+      } else {
+        v = slot;
+      }
+    });
+  }
+
   [[nodiscard]] size_t size() const noexcept {
     auto const writeIdx = writeIdx_.load(std::memory_order_acquire);
     auto const readIdx = readIdx_.load(std::memory_order_acquire);

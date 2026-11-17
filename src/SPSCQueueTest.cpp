@@ -547,6 +547,81 @@ static void testDeathPopEmpty() {
 #endif
 }
 
+static void testTryPop() {
+  using namespace rigtorp;
+
+  // Empty, wrap-around, and cached writeIdx update
+  {
+    SPSCQueue<int> q(2);
+    int v = -1;
+    CHECK(!q.try_pop(v));
+    CHECK(v == -1);
+
+    for (int i = 0; i < 6; ++i) {
+      CHECK(q.try_push(i));
+      CHECK(q.try_pop(v));
+      CHECK(v == i);
+      CHECK(!q.try_pop(v));
+    }
+  }
+
+  // Move-only type
+  {
+    SPSCQueue<std::unique_ptr<int>> q(2);
+    q.emplace(std::make_unique<int>(99));
+    std::unique_ptr<int> out;
+    CHECK(q.try_pop(out));
+    CHECK(out && *out == 99);
+    CHECK(!q.try_pop(out));
+  }
+
+  // Copy-only type
+  {
+    struct CopyOnly {
+      int x;
+      explicit CopyOnly(int v) noexcept : x(v) {}
+      CopyOnly(const CopyOnly &) = default;
+      CopyOnly &operator=(const CopyOnly &) = default;
+      CopyOnly(CopyOnly &&) = delete;
+      CopyOnly &operator=(CopyOnly &&) = delete;
+    };
+    SPSCQueue<CopyOnly> q(2);
+    CopyOnly in(7);
+    q.push(in);
+    CopyOnly out(0);
+    CHECK(q.try_pop(out));
+    CHECK(out.x == 7);
+    CHECK(!q.try_pop(out));
+  }
+
+  // try_consume with immovable and move-only types
+  {
+    struct Immovable {
+      int x;
+      explicit Immovable(int v) noexcept : x(v) {}
+      Immovable(const Immovable &) = delete;
+      Immovable &operator=(const Immovable &) = delete;
+      Immovable(Immovable &&) = delete;
+      Immovable &operator=(Immovable &&) = delete;
+    };
+    SPSCQueue<Immovable> q(2);
+    int observed = 0;
+    CHECK(!q.try_consume([&](Immovable &v) { observed = v.x; }));
+    q.emplace(123);
+    CHECK(q.try_consume([&](Immovable &v) { observed = v.x; }));
+    CHECK(observed == 123);
+    CHECK(q.empty());
+
+    SPSCQueue<std::unique_ptr<int>> mq(2);
+    mq.emplace(std::make_unique<int>(456));
+    std::unique_ptr<int> out;
+    CHECK(mq.try_consume(
+        [&](std::unique_ptr<int> &p) { out = std::move(p); }));
+    CHECK(out && *out == 456);
+    CHECK(mq.empty());
+  }
+}
+
 int main(int argc, char *argv[]) {
   (void)argc, (void)argv;
 
@@ -556,6 +631,7 @@ int main(int argc, char *argv[]) {
   testCustomAllocator();
   testCapacityBounds();
   testDeathPopEmpty();
+  testTryPop();
   testConcurrency();
 
   return 0;
