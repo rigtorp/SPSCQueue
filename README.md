@@ -1,11 +1,21 @@
 # SPSCQueue.h
 
-A single-producer single-consumer queue written in C++20. It has a fixed capacity
-and supports wait-free operations.
+A single-header, wait-free single-producer single-consumer queue written in
+C++20.
 
-In the benchmarks below, it is faster than both
-[*boost::lockfree::spsc*](https://www.boost.org/doc/libs/1_76_0/doc/html/boost/lockfree/spsc_queue.html)
-and [*folly::ProducerConsumerQueue*](https://github.com/facebook/folly/blob/master/folly/docs/ProducerConsumerQueue.md).
+Why choose `SPSCQueue`:
+
+- **Fast under real workloads**: leads all tested queues in bounded throughput
+  (`219.3 Mops/s`) with `86–91 ns` warm round-trip latency (faster than
+  `boost::lockfree::spsc_queue`, `folly::ProducerConsumerQueue`,
+  `moodycamel::ReaderWriterQueue`, `dro::SPSCQueue`, and `DPDK rte_ring`).
+- **No artificial type or capacity restrictions**: supports
+  non-default-constructible and immovable types, arbitrary non-power-of-two
+  capacities, custom allocators (including `allocate_at_least`), and zero-copy
+  consumption (`front()`/`pop()`, `try_consume()`).
+- **Drop-in and rigorously verified**: single header with no external
+  dependencies, 100% MC/DC test coverage, and bounded RC11 weak-memory
+  verification with GenMC.
 
 ## Example
 
@@ -247,28 +257,77 @@ verification layers:
 
 ## Benchmarks
 
-Throughput benchmark measures throughput between 2 threads for a queue of `int`
-items.
+`SPSCQueueBenchmark` interleaves all queues in a Latin-square order across
+multiple trials and reports the median for four workloads using `int` items:
 
-Latency benchmark measures round trip time between 2 threads communicating using
-2 queues of `int` items.
+- **Bounded throughput** (`Mops/s`): 50M operations on a 65,536-entry queue.
+  This is the primary throughput metric: real queues run under backpressure
+  where producer and consumer repeatedly catch up, wrap around, and exchange
+  cache lines, rather than simply buffering millions of items uncontested.
+- **Decoupled throughput** (`Mops/s`): 2M operations on a 2M-entry queue.
+  Measures uncontended per-operation overhead when the ring is large enough
+  that producer and consumer rarely stall on each other.
+- **Warm latency** (`ns RTT`): 2M round trips between 2 threads via 2 queues.
+  Measures best-case ping-pong handoff latency with queue metadata hot in CPU
+  caches, isolating atomic synchronization and false-sharing overhead.
+- **Cold latency** (`ns RTT`): round trips striped across 262,144 queue pairs.
+  Evicts queue state from CPU caches between accesses, measuring how compact
+  and cache-friendly the queue layout is under bursty or many-queue workloads.
 
-Benchmark results for a AMD Ryzen 9 3900X 12-Core Processor, the 2 threads are
-running on different cores on the same chiplet:
+To build and run the benchmark with all optional comparison queues using Nix:
 
-| Queue                        | Throughput (ops/ms) | Latency RTT (ns) |
-| ---------------------------- | ------------------: | ---------------: |
-| SPSCQueue                    |              362723 |              133 |
-| boost::lockfree::spsc        |              209877 |              222 |
-| folly::ProducerConsumerQueue |              148818 |              147 |
+```sh
+nix develop --command bash -c "cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target SPSCQueueBenchmark"
+./build/SPSCQueueBenchmark 0 1
+```
 
-## Cited by
+Median results on an AMD Ryzen 7 8745HS (2 threads pinned to separate physical
+cores 0 and 1 sharing L3 cache):
 
-SPSCQueue have been cited by the following papers:
+| Queue | Decoupled (Mops/s) | Bounded (Mops/s) | Warm RTT (ns) | Cold RTT (ns) |
+| --- | ---: | ---: | ---: | ---: |
+| `rigtorp::SPSCQueue` | 717.3 | 219.3 | 91 | 142 |
+| `rigtorp::SPSCQueue` (`try_pop`) | 683.4 | 204.2 | 86 | 161 |
+| `rigtorp::SPSCQueue` (`try_consume`) | 696.8 | 200.0 | 86 | 125 |
+| `boost::lockfree::spsc_queue` | 207.5 | 186.9 | 155 | 163 |
+| `folly::ProducerConsumerQueue` | 226.5 | 149.0 | 136 | 146 |
+| `rigtorp::MPMCQueue` | 65.7 | 61.4 | 118 | 294 |
+| `moodycamel::ReaderWriterQueue` | 218.1 | 164.9 | 139 | 155 |
+| `dro::SPSCQueue` | 866.4 | 172.1 | 154 | 147 |
+| `atomic_queue::AtomicQueueB` (`SPSC`) | 739.5 | 204.2 | 95 | 97 |
+| `atomic_queue::AtomicQueueB2` (`SPSC`) | 654.1 | 163.7 | 100 | 106 |
+| `DPDK rte_ring` (`SP/SC`) | 180.0 | 133.1 | 146 | 145 |
 
-- Peizhao Ou and Brian Demsky. 2018. Towards understanding the costs of avoiding
-  out-of-thin-air results. Proc. ACM Program. Lang. 2, OOPSLA, Article 136
-  (October 2018), 29 pages. DOI: <https://doi.org/10.1145/3276506>
+## Citation
+
+If you use SPSCQueue in a paper, please cite it. Include the version or commit
+used in your work.
+
+```bibtex
+@misc{rigtorp_spscqueue,
+  author = {Erik Rigtorp},
+  title = {{SPSCQueue}},
+  howpublished = {\url{https://github.com/rigtorp/SPSCQueue}}
+}
+```
+
+Publications that cite SPSCQueue:
+
+- Peizhao Ou and Brian Demsky. 2018.
+  [Towards Understanding the Costs of Avoiding Out-of-Thin-Air Results](https://doi.org/10.1145/3276506).
+  OOPSLA.
+- Thibaut Carpentier. 2018.
+  [Synchronisation de données inter-processus dans les applications audio temps réel : qu’est-ce qui débloque ?](https://hal.science/hal-01791422).
+  JIM, pp. 35–44.
+- Jörg Christian Kirchhof. 2022.
+  [Model-Driven Development, Deployment, and Analysis of Internet of Things Applications](https://www.se-rwth.de/phdtheses/Diss-Kirchhof-Model-Driven-Development-Deployment-and-Analysis-of-Internet-of-Things-Applications.pdf).
+  Doctoral thesis.
+- Clément Allain. 2025.
+  [Verification of fine-grained concurrent OCaml 5 algorithms using separation logic](https://iris-project.org/pdfs/2025-phd-allain.pdf).
+  Doctoral thesis.
+- Ziye Xie et al. 2026.
+  [Toward Accurate and Accessible Markerless Neuronavigation](https://arxiv.org/abs/2602.07052v1).
+  Preprint, version 1.
 
 ## About
 
